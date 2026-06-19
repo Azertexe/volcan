@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Volcan — Piton de la Fournaise · Trémor en temps réel</title>
+  <link rel="stylesheet" href="style.css" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🌋</text></svg>" />
+  <!-- seisplotjs for FDSN seismic data visualization -->
+  <script src="https://cdn.jsdelivr.net/npm/seisplotjs@3.1.4/dist/seisplotjs.iife.js"></script>
+</head>
+<body>
+  <header>
+    <div class="header-inner">
+      <div class="logo">🌋</div>
+      <div class="header-text">
+        <h1>Piton de la Fournaise</h1>
+        <p class="subtitle">Surveillance du trémor volcanique · Réseau PF · Temps réel</p>
+      </div>
+      <div class="status-badge" id="status-badge">
+        <span class="dot"></span>
+        <span id="status-text">Connexion…</span>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <!-- Info bar -->
+    <div class="info-bar">
+      <div class="info-item">
+        <span class="info-label">Dernière mise à jour</span>
+        <span class="info-value" id="last-update">—</span>
+      </div>
+      <div class="info-item">
+        <span class="info-label">Stations actives</span>
+        <span class="info-value" id="station-count">—</span>
+      </div>
+      <div class="info-item">
+        <span class="info-label">Fenêtre affichée</span>
+        <span class="info-value" id="window-label">30 min</span>
+      </div>
+      <div class="controls">
+        <button class="btn" id="btn-15">15 min</button>
+        <button class="btn active" id="btn-30">30 min</button>
+        <button class="btn" id="btn-60">1 h</button>
+        <button class="btn refresh-btn" id="btn-refresh" title="Rafraîchir maintenant">↺ Refresh</button>
+      </div>
+    </div>
+
+    <!-- Station selector -->
+    <div class="station-bar">
+      <span class="station-bar-label">Stations :</span>
+      <div class="station-chips" id="station-chips">
+        <span class="chip-loading">Chargement des stations…</span>
+      </div>
+    </div>
+
+    <!-- Waveform panels -->
+    <div class="panels" id="panels">
+      <div class="loading-overlay" id="loading-overlay">
+        <div class="spinner"></div>
+        <p>Récupération des données RESIF…</p>
+      </div>
+    </div>
+
+    <!-- Spectrogramme section -->
+    <div class="section-title">Spectrogramme (dernières 30 min)</div>
+    <div class="panels" id="spectro-panels"></div>
+
+    <!-- Legend / source -->
+    <div class="legend-bar">
+      <div class="legend-item">
+        <span class="legend-dot hf"></span>Hautes fréquences (HHZ)
+      </div>
+      <div class="legend-item">
+        <span class="legend-dot lf"></span>Basses fréquences (BHZ)
+      </div>
+      <span class="source-note">Source : <a href="https://ws.resif.fr/" target="_blank">ws.resif.fr</a> · Réseau <a href="https://volobsis.ipgp.fr/networks/detail/PF/" target="_blank">PF (OVPF-IPGP)</a></span>
+    </div>
+  </main>
+
+  <footer>
+    <p>Données sismiques : <a href="https://ws.resif.fr/fdsnws/" target="_blank">RESIF FDSN Web Services</a> · Opérateur réseau : <a href="https://www.ipgp.fr" target="_blank">IPGP / OVPF</a></p>
+    <p class="footer-note">Ce site est un outil de visualisation indépendant. Pour les alertes officielles, consultez <a href="https://www.ipgp.fr/fr/ovpf/actualites-ovpf" target="_blank">l'OVPF</a>.</p>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>
