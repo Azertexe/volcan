@@ -2,8 +2,7 @@
    Piton de la Fournaise — Real-time tremor dashboard
    Data source: RESIF FDSN Web Services (ws.resif.fr)
    Network: PF (OVPF-IPGP)
-   MiniSEED 2.x parser: pure JS — reads Blockette 1000 for
-   record length and encoding, supports Steim-1 and Steim-2.
+   MiniSEED 2.x parser: pure JS (Steim-1/2, Blockette 1000) — no CDN.
 ────────────────────────────────────────────────────────────── */
 
 const FDSN_BASE   = 'https://ws.resif.fr/fdsnws';
@@ -11,10 +10,38 @@ const NETWORK     = 'PF';
 const REFRESH_MS  = 60_000;
 const DEFAULT_WIN = 30;
 
+/* ─── Station metadata (name + geographic zone) ──────────── */
+const ZONE_ORDER = [
+  'Sommet', 'Enclos Fouqué', 'Pentes N', 'Pentes S',
+  'Pentes E', 'Grand Brûlé', 'Hors enclos', 'Autre',
+];
+
+const STATIONS_META = {
+  BOR: { name: 'Bory',            zone: 'Enclos Fouqué' },
+  FEU: { name: 'Feu',             zone: 'Enclos Fouqué' },
+  CSS: { name: 'Cassé Sud',       zone: 'Enclos Fouqué' },
+  FOR: { name: 'Formica Leo',     zone: 'Enclos Fouqué' },
+  FER: { name: 'Ferret',          zone: 'Enclos Fouqué' },
+  PER: { name: 'Pére',            zone: 'Pentes S' },
+  RVP: { name: 'Ravine Plate',    zone: 'Pentes S' },
+  RVL: { name: 'Ravine Langevin', zone: 'Pentes S' },
+  NSR: { name: 'Nez Scie',        zone: 'Pentes N' },
+  SNE: { name: 'Sainte-Neige',    zone: 'Pentes N' },
+  RER: { name: 'Rempart Est',     zone: 'Grand Brûlé' },
+  BEB: { name: 'Basse Estelle B', zone: 'Grand Brûlé' },
+  HDL: { name: 'Hauts-de-Ligne',  zone: 'Hors enclos' },
+  MAT: { name: 'Matouta',         zone: 'Hors enclos' },
+  PJR: { name: 'Piton Jacquot',   zone: 'Hors enclos' },
+};
+
+function getMeta(code) {
+  return STATIONS_META[code] || { name: code, zone: 'Autre' };
+}
+
 const PRIORITY_STATIONS = [
-     'RER', 'BOR', 'FER', 'NSR', 'FOR',
-     'PER', 'CSS', 'BEB', 'HDL', 'SNE',
-   ];
+  'RER', 'BOR', 'FER', 'NSR', 'FOR',
+  'PER', 'CSS', 'BEB', 'HDL', 'SNE',
+];
 
 const CHANNEL_PRIO = ['HHZ', 'BHZ', 'EHZ', 'SHZ', 'HNZ'];
 
@@ -27,7 +54,6 @@ let isLoading      = false;
 
 /* ─── DOM refs ───────────────────────────────────────────── */
 const $panels       = document.getElementById('panels');
-const $specPanels   = document.getElementById('spectro-panels');
 const $overlay      = document.getElementById('loading-overlay');
 const $chips        = document.getElementById('station-chips');
 const $statusDot    = document.querySelector('.dot');
@@ -38,12 +64,12 @@ const $windowLabel  = document.getElementById('window-label');
 
 /* ─── Helpers ────────────────────────────────────────────── */
 function fmtTime(d) {
-     return d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  return d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 }
 
 function setStatus(state, text) {
-     $statusDot.className = 'dot ' + state;
-     $statusText.textContent = text;
+  $statusDot.className    = 'dot ' + state;
+  $statusText.textContent = text;
 }
 
 /* ═══════════════════════════════════════════════════════════
@@ -297,201 +323,251 @@ function decodeSteim2(buffer, start, dataLen, numSamples) {
 
 /* ─── Fetch station list ─────────────────────────────────── */
 async function fetchStations() {
-     const url = `${FDSN_BASE}/station/1/query?network=${NETWORK}&level=station&format=xml&nodata=404`;
-     try {
-            const resp = await fetch(url);
-            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-            const text = await resp.text();
-            const doc  = new DOMParser().parseFromString(text, 'application/xml');
-            const codes = Array.from(doc.querySelectorAll('Station'))
-              .map(n => n.getAttribute('code')).filter(Boolean);
-            return [...new Set(codes)].sort();
-     } catch (e) {
-            console.warn('Station list fetch failed:', e);
-            return PRIORITY_STATIONS;
-     }
+  const url = `${FDSN_BASE}/station/1/query?network=${NETWORK}&level=station&format=xml&nodata=404`;
+  try {
+    const resp = await fetch(url);
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const text = await resp.text();
+    const doc  = new DOMParser().parseFromString(text, 'application/xml');
+    const codes = Array.from(doc.querySelectorAll('Station'))
+      .map(n => n.getAttribute('code')).filter(Boolean);
+    return [...new Set(codes)].sort();
+  } catch (e) {
+    console.warn('Station list fetch failed:', e);
+    return PRIORITY_STATIONS;
+  }
 }
 
 /* ─── Fetch waveform data ────────────────────────────────── */
 async function fetchWaveformData(station, startISO, endISO) {
-     for (const channel of CHANNEL_PRIO) {
-            const url = `${FDSN_BASE}/dataselect/1/query?network=${NETWORK}&station=${station}` +
-                     `&location=*&channel=${channel}&starttime=${startISO}&endtime=${endISO}&nodata=404`;
-            try {
-                     const resp = await fetch(url);
-                     if (resp.ok) {
-                                const buffer = await resp.arrayBuffer();
-                                if (buffer.byteLength > 0) return { buffer, channel };
-                     }
-            } catch (_) {}
-     }
-     return null;
+  for (const channel of CHANNEL_PRIO) {
+    const url = `${FDSN_BASE}/dataselect/1/query?network=${NETWORK}&station=${station}` +
+                `&location=*&channel=${channel}&starttime=${startISO}&endtime=${endISO}&nodata=404`;
+    try {
+      const resp = await fetch(url);
+      if (resp.ok) {
+        const buffer = await resp.arrayBuffer();
+        if (buffer.byteLength > 0) return { buffer, channel };
+      }
+    } catch (_) {}
+  }
+  return null;
 }
 
-/* ─── Draw waveform on canvas ────────────────────────────── */
-function drawWaveform(canvas, buffer, channel) {
-     const ctx = canvas.getContext('2d');
-     const W   = canvas.width  = canvas.offsetWidth  || 900;
-     const H   = canvas.height = canvas.offsetHeight || 140;
-     ctx.clearRect(0, 0, W, H);
-
-  // Background grid
-  ctx.strokeStyle = 'rgba(255,255,255,0.04)';
-     ctx.lineWidth   = 1;
-     for (let i = 1; i < 4; i++) {
-            const y = (H / 4) * i;
-            ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
-     }
-
-  // Parse MiniSEED
-  let samples;
-     try {
-            samples = parseMiniSEED(buffer);
-     } catch (e) {
-            drawError(ctx, W, H, 'Erreur de lecture');
-            return;
-     }
-
-  if (!samples || samples.length === 0) {
-         drawError(ctx, W, H, 'Aucune donnée décodée');
-         return;
+/* ─── Compute RSAM (mean absolute amplitude per window) ──── */
+function computeRSAM(samples, sampleRate = 100, windowSec = 10) {
+  const winSize = Math.max(1, Math.round(sampleRate * windowSec));
+  const rsam = [];
+  for (let i = 0; i < samples.length; i += winSize) {
+    const slice = samples.slice(i, i + winSize);
+    if (!slice.length) break;
+    let sum = 0;
+    for (const v of slice) sum += Math.abs(v);
+    rsam.push(sum / slice.length);
   }
+  return rsam;
+}
 
-  // Compute min/max for normalization
+/* ─── Draw helpers ───────────────────────────────────────── */
+function drawGrid(ctx, W, H) {
+  ctx.strokeStyle = 'rgba(255,255,255,0.04)';
+  ctx.lineWidth   = 1;
+  for (let i = 1; i < 4; i++) {
+    const y = (H / 4) * i;
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
+  }
+}
+
+function drawLine(ctx, data, W, H, color) {
+  if (!data.length) return;
   let min = Infinity, max = -Infinity;
-     for (const v of samples) {
-            if (v < min) min = v;
-            if (v > max) max = v;
-     }
-     const range = max - min || 1;
-     const pad   = H * 0.1;
+  for (const v of data) { if (v < min) min = v; if (v > max) max = v; }
+  const range = max - min || 1;
+  const pad   = H * 0.1;
 
-  // Color: orange for HF channels, blue for LF
-  const isHF = channel.startsWith('H') || channel.startsWith('E');
-     ctx.strokeStyle = isHF ? '#ff8c42' : '#5b9bd5';
-     ctx.lineWidth   = 1.2;
-     ctx.beginPath();
+  ctx.strokeStyle = color;
+  ctx.lineWidth   = 1.3;
+  ctx.beginPath();
+  const step = data.length / W;
+  for (let px = 0; px < W; px++) {
+    const idx = Math.min(Math.floor(px * step), data.length - 1);
+    const y   = pad + ((max - data[idx]) / range) * (H - 2 * pad);
+    px === 0 ? ctx.moveTo(px, y) : ctx.lineTo(px, y);
+  }
+  ctx.stroke();
 
-  const step = samples.length / W;
-     for (let px = 0; px < W; px++) {
-            const idx = Math.min(Math.floor(px * step), samples.length - 1);
-            const y   = pad + ((max - samples[idx]) / range) * (H - 2 * pad);
-            px === 0 ? ctx.moveTo(px, y) : ctx.lineTo(px, y);
-     }
-     ctx.stroke();
-
-  // Zero / median line
   const zeroY = pad + (max / range) * (H - 2 * pad);
-     ctx.strokeStyle = 'rgba(255,255,255,0.08)';
-     ctx.lineWidth   = 0.5;
-     ctx.beginPath(); ctx.moveTo(0, zeroY); ctx.lineTo(W, zeroY); ctx.stroke();
+  ctx.strokeStyle = 'rgba(255,255,255,0.07)';
+  ctx.lineWidth   = 0.5;
+  ctx.beginPath(); ctx.moveTo(0, zeroY); ctx.lineTo(W, zeroY); ctx.stroke();
+}
+
+function drawCanvasLabel(ctx, text, color) {
+  ctx.fillStyle = color;
+  ctx.font      = '11px Inter, system-ui, sans-serif';
+  ctx.textAlign = 'left';
+  ctx.fillText(text, 8, 16);
 }
 
 function drawError(ctx, W, H, msg) {
-     ctx.fillStyle = 'rgba(255,78,26,0.15)';
-     ctx.fillRect(0, 0, W, H);
-     ctx.fillStyle = '#7a7a90';
-     ctx.font      = '13px Inter, system-ui, sans-serif';
-     ctx.textAlign = 'center';
-     ctx.fillText(msg, W / 2, H / 2 + 5);
+  ctx.fillStyle = 'rgba(255,78,26,0.12)';
+  ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle  = '#7a7a90';
+  ctx.font       = '12px Inter, system-ui, sans-serif';
+  ctx.textAlign  = 'center';
+  ctx.fillText(msg, W / 2, H / 2 + 4);
 }
 
-/* ─── Build panel DOM ────────────────────────────────────── */
-function buildPanel(id, station, channel, startLabel, endLabel) {
-     const div = document.createElement('div');
-     div.className = 'panel';
-     div.id        = 'panel-' + id;
-     div.innerHTML = `
-         <div class="panel-header">
-               <span class="panel-title">${NETWORK}.${station} · ${channel || '…'}</span>
-                     <span class="panel-meta">${startLabel} → ${endLabel}</span>
-                         </div>
-                             <div class="panel-body">
-                                   <canvas class="panel-canvas" id="canvas-${id}"></canvas>
-                                       </div>
-                                         `;
-     return div;
+function renderCanvas(canvas, data, color, labelText) {
+  const W = canvas.width  = canvas.offsetWidth  || 600;
+  const H = canvas.height = canvas.offsetHeight || 140;
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, W, H);
+  drawGrid(ctx, W, H);
+  if (data && data.length) {
+    drawLine(ctx, data, W, H, color);
+    drawCanvasLabel(ctx, labelText, color + 'cc');
+  } else {
+    drawError(ctx, W, H, 'Aucune donnée');
+  }
+}
+
+/* ─── Build dual panel (raw waveform + RSAM) ─────────────── */
+function buildPanel(station, channel, startLabel, endLabel) {
+  const meta = getMeta(station);
+  const div  = document.createElement('div');
+  div.className = 'panel';
+  div.id        = 'panel-' + station;
+  div.innerHTML = `
+    <div class="panel-header">
+      <div class="panel-title-group">
+        <span class="panel-title">${NETWORK}.${station}</span>
+        <span class="panel-station-name">${meta.name}</span>
+        <span class="panel-zone-badge">${meta.zone}</span>
+      </div>
+      <span class="panel-meta">${channel || '—'} · ${startLabel} → ${endLabel}</span>
+    </div>
+    <div class="panel-dual">
+      <div class="panel-half"><canvas class="panel-canvas" id="canvas-wf-${station}"></canvas></div>
+      <div class="panel-half"><canvas class="panel-canvas" id="canvas-rsam-${station}"></canvas></div>
+    </div>
+  `;
+  return div;
 }
 
 /* ─── Main load routine ──────────────────────────────────── */
 async function loadData() {
-     if (isLoading) return;
-     isLoading = true;
-     setStatus('', 'Chargement…');
-     $overlay.classList.remove('hidden');
-     $panels.querySelectorAll('.panel').forEach(p => p.remove());
-     $specPanels.innerHTML = '';
+  if (isLoading) return;
+  isLoading = true;
+  setStatus('', 'Chargement…');
+  $overlay.classList.remove('hidden');
+  $panels.querySelectorAll('.panel').forEach(p => p.remove());
 
   const endTime    = new Date();
-     const startTime  = new Date(endTime - windowMinutes * 60 * 1000);
-     const startISO   = startTime.toISOString().replace(/\.\d+Z$/, 'Z');
-     const endISO     = endTime.toISOString().replace(/\.\d+Z$/, 'Z');
-     const startLabel = fmtTime(startTime);
-     const endLabel   = fmtTime(endTime);
+  const startTime  = new Date(endTime - windowMinutes * 60 * 1000);
+  const startISO   = startTime.toISOString().replace(/\.\d+Z$/, 'Z');
+  const endISO     = endTime.toISOString().replace(/\.\d+Z$/, 'Z');
+  const startLabel = fmtTime(startTime);
+  const endLabel   = fmtTime(endTime);
 
-  const stations = [...activeStations];
-     let loaded = 0;
+  // Sort active stations by geographic zone order
+  const stations = [...activeStations].sort((a, b) => {
+    const za = ZONE_ORDER.indexOf(getMeta(a).zone);
+    const zb = ZONE_ORDER.indexOf(getMeta(b).zone);
+    return (za === -1 ? 99 : za) - (zb === -1 ? 99 : zb) || a.localeCompare(b);
+  });
+
+  let loaded = 0;
 
   const tasks = stations.map(async (station) => {
-         const result  = await fetchWaveformData(station, startISO, endISO);
-         const id      = station;
-         const channel = result ? result.channel : '—';
-         const panel   = buildPanel(id, station, channel, startLabel, endLabel);
-         $panels.appendChild(panel);
+    const result  = await fetchWaveformData(station, startISO, endISO);
+    const channel = result ? result.channel : null;
+    const panel   = buildPanel(station, channel, startLabel, endLabel);
+    $panels.appendChild(panel);
 
-                                 if (result) {
-                                          const canvas = document.getElementById('canvas-' + id);
-                                          if (canvas) {
-                                                     requestAnimationFrame(() => drawWaveform(canvas, result.buffer, result.channel));
-                                          }
-                                          loaded++;
-                                 } else {
-                                          panel.querySelector('.panel-body').innerHTML =
-                                                     `<div class="panel-error">Pas de données disponibles pour cette station sur la période</div>`;
-                                 }
+    if (!result) {
+      panel.querySelector('.panel-dual').innerHTML =
+        `<div class="panel-error">Pas de données disponibles pour cette station</div>`;
+      return;
+    }
+
+    loaded++;
+    let samples = [];
+    try { samples = parseMiniSEED(result.buffer); } catch (_) {}
+
+    const sps      = channel.startsWith('H') ? 100 : channel.startsWith('B') ? 20 : 50;
+    const rsam     = computeRSAM(samples, sps, 10);
+
+    requestAnimationFrame(() => {
+      const cvWF   = document.getElementById('canvas-wf-'   + station);
+      const cvRSAM = document.getElementById('canvas-rsam-' + station);
+      if (cvWF)   renderCanvas(cvWF,   samples, '#ff8c42', 'Signal brut');
+      if (cvRSAM) renderCanvas(cvRSAM, rsam,    '#30d158', 'RSAM');
+    });
   });
 
   await Promise.allSettled(tasks);
 
   $overlay.classList.add('hidden');
-     $lastUpdate.textContent   = fmtTime(new Date());
-     $stationCount.textContent = `${loaded} / ${stations.length}`;
-     isLoading = false;
+  $lastUpdate.textContent   = fmtTime(new Date());
+  $stationCount.textContent = `${loaded} / ${stations.length}`;
+  isLoading = false;
 
   setStatus(
-         loaded > 0 ? 'live' : 'error',
-         loaded > 0 ? `En direct · ${loaded} station${loaded > 1 ? 's' : ''}` : 'Aucune donnée reçue'
-       );
+    loaded > 0 ? 'live' : 'error',
+    loaded > 0 ? `En direct · ${loaded} station${loaded > 1 ? 's' : ''}` : 'Aucune donnée reçue'
+  );
 }
 
-/* ─── Station chips ──────────────────────────────────────── */
+/* ─── Station chips (grouped by zone) ────────────────────── */
 function renderChips() {
-     $chips.innerHTML = '';
-     const displayed = allStations.length ? allStations : PRIORITY_STATIONS;
-     for (const code of displayed) {
-            const chip = document.createElement('button');
-            chip.className = 'chip' + (activeStations.has(code) ? ' active' : '');
-            chip.textContent = code;
-            chip.addEventListener('click', () => {
-                     if (activeStations.has(code)) {
-                                if (activeStations.size > 1) activeStations.delete(code);
-                     } else {
-                                activeStations.add(code);
-                     }
-                     renderChips();
-                     loadData();
-            });
-            $chips.appendChild(chip);
-     }
+  $chips.innerHTML = '';
+  const displayed = allStations.length ? allStations : PRIORITY_STATIONS;
+
+  const byZone = new Map(ZONE_ORDER.map(z => [z, []]));
+  for (const code of displayed) {
+    const zone = getMeta(code).zone;
+    if (!byZone.has(zone)) byZone.set(zone, []);
+    byZone.get(zone).push(code);
+  }
+
+  let first = true;
+  for (const zone of ZONE_ORDER) {
+    const codes = byZone.get(zone) || [];
+    if (!codes.length) continue;
+
+    const label = document.createElement('span');
+    label.className   = 'chip-group-label' + (first ? '' : ' chip-group-label--gap');
+    label.textContent = zone;
+    $chips.appendChild(label);
+    first = false;
+
+    for (const code of codes) {
+      const chip = document.createElement('button');
+      chip.className   = 'chip' + (activeStations.has(code) ? ' active' : '');
+      chip.textContent = code;
+      chip.title       = getMeta(code).name;
+      chip.addEventListener('click', () => {
+        if (activeStations.has(code)) {
+          if (activeStations.size > 1) activeStations.delete(code);
+        } else {
+          activeStations.add(code);
+        }
+        renderChips();
+        loadData();
+      });
+      $chips.appendChild(chip);
+    }
+  }
 }
 
 /* ─── Window buttons ─────────────────────────────────────── */
 function setWindow(min, btnId) {
-     windowMinutes = min;
-     $windowLabel.textContent = min >= 60 ? `${min / 60} h` : `${min} min`;
-     document.querySelectorAll('.controls .btn').forEach(b => b.classList.remove('active'));
-     document.getElementById(btnId)?.classList.add('active');
-     loadData();
+  windowMinutes = min;
+  $windowLabel.textContent = min >= 60 ? `${min / 60} h` : `${min} min`;
+  document.querySelectorAll('.controls .btn').forEach(b => b.classList.remove('active'));
+  document.getElementById(btnId)?.classList.add('active');
+  loadData();
 }
 
 document.getElementById('btn-15').addEventListener('click', () => setWindow(15, 'btn-15'));
@@ -501,23 +577,23 @@ document.getElementById('btn-refresh').addEventListener('click', loadData);
 
 /* ─── Auto-refresh ───────────────────────────────────────── */
 function startAutoRefresh() {
-     clearInterval(refreshTimer);
-     refreshTimer = setInterval(loadData, REFRESH_MS);
+  clearInterval(refreshTimer);
+  refreshTimer = setInterval(loadData, REFRESH_MS);
 }
 
 /* ─── Init ───────────────────────────────────────────────── */
 async function init() {
-     setStatus('', 'Connexion…');
-     const stations = await fetchStations();
-     allStations = stations.filter(s => s.length <= 5);
+  setStatus('', 'Connexion…');
+  const stations = await fetchStations();
+  allStations = stations.filter(s => s.length <= 5);
 
   const available = new Set(allStations);
-     activeStations  = new Set(PRIORITY_STATIONS.filter(s => available.has(s)).slice(0, 6));
-     if (activeStations.size === 0) allStations.slice(0, 5).forEach(s => activeStations.add(s));
+  activeStations  = new Set(PRIORITY_STATIONS.filter(s => available.has(s)).slice(0, 6));
+  if (activeStations.size === 0) allStations.slice(0, 5).forEach(s => activeStations.add(s));
 
   renderChips();
-     await loadData();
-     startAutoRefresh();
+  await loadData();
+  startAutoRefresh();
 }
 
 init();
