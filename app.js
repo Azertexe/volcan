@@ -2,7 +2,8 @@
    Piton de la Fournaise — Real-time tremor dashboard
    Data source: RESIF FDSN Web Services (ws.resif.fr)
    Network: PF (OVPF-IPGP)
-   MiniSEED parser: pure JS (no external lib needed)
+   MiniSEED 2.x parser: pure JS — reads Blockette 1000 for
+   record length and encoding, supports Steim-1 and Steim-2.
 ────────────────────────────────────────────────────────────── */
 
 const FDSN_BASE   = 'https://ws.resif.fr/fdsnws';
@@ -25,15 +26,15 @@ let refreshTimer   = null;
 let isLoading      = false;
 
 /* ─── DOM refs ───────────────────────────────────────────── */
-const $panels      = document.getElementById('panels');
-const $specPanels  = document.getElementById('spectro-panels');
-const $overlay     = document.getElementById('loading-overlay');
-const $chips       = document.getElementById('station-chips');
-const $statusDot   = document.querySelector('.dot');
-const $statusText  = document.getElementById('status-text');
-const $lastUpdate  = document.getElementById('last-update');
+const $panels       = document.getElementById('panels');
+const $specPanels   = document.getElementById('spectro-panels');
+const $overlay      = document.getElementById('loading-overlay');
+const $chips        = document.getElementById('station-chips');
+const $statusDot    = document.querySelector('.dot');
+const $statusText   = document.getElementById('status-text');
+const $lastUpdate   = document.getElementById('last-update');
 const $stationCount = document.getElementById('station-count');
-const $windowLabel = document.getElementById('window-label');
+const $windowLabel  = document.getElementById('window-label');
 
 /* ─── Helpers ────────────────────────────────────────────── */
 function fmtTime(d) {
@@ -46,34 +47,67 @@ function setStatus(state, text) {
 }
 
 /* ═══════════════════════════════════════════════════════════
-   MINISEED PARSER (pure JS — no external library)
-   Supports encodings: 1 (int16), 3 (int32), 4 (float32),
-                       5 (float64), 10 (Steim-1), 11 (Steim-2)
+   MINISEED 2.x PARSER — pure JavaScript
+   Correctly reads Blockette 1000 for record length/encoding
+   Supports: encoding 1 (int16), 3 (int32), 4 (float32),
+             5 (float64), 10 (Steim-1), 11 (Steim-2)
    ═══════════════════════════════════════════════════════════ */
 
+/**
+ * Sign-extend a value from `bits` to 32-bit signed integer.
+ */
+function signExtend(val, bits) {
+     const sign = 1 << (bits - 1);
+     return (val ^ sign) - sign;
+}
+
+/**
+ * Parse a MiniSEED 2.x buffer and return a flat array of sample values.
+ */
 function parseMiniSEED(buffer) {
-     const samples = [];
-     let offset = 0;
+     const allSamples = [];
      const bytes = new Uint8Array(buffer);
+     let offset = 0;
 
-  while (offset + 48 < buffer.byteLength) {
-         const view = new DataView(buffer, offset);
-
-       // Validate sequence number (6 ASCII digits)
-       let validHeader = true;
+  while (offset + 64 <= buffer.byteLength) {
+         // Validate 6-byte ASCII sequence number
+       let valid = true;
          for (let i = 0; i < 6; i++) {
-                  const c = bytes[offset + i];
-                  if (c < 48 || c > 57) { validHeader = false; break; }
+                  if (bytes[offset + i] < 48 || bytes[offset + i] > 57) { valid = false; break; }
          }
-         if (!validHeader) { offset++; continue; }
+         if (!valid) { offset++; continue; }
 
-       // Read fixed header fields
-       const recLenExp   = view.getUint8(20);       // byte 20: record length as 2^n
-       const encoding    = view.getUint8(45);        // byte 45: encoding format
-       const byteOrder   = view.getUint8(46);        // byte 46: word order (1=big-endian)
-       const dataOffset  = view.getUint16(44, false); // bytes 44-45: offset to data (big-endian)
-       const numSamples  = view.getUint16(30, false); // bytes 30-31: number of samples
-       const recLen      = recLenExp >= 8 && recLenExp <= 16 ? Math.pow(2, recLenExp) : 4096;
+       const view = new DataView(buffer, offset);
+
+       // Fixed section of Data Header
+       const numSamples          = view.getUint16(30, false); // big-endian
+       const dataOffset          = view.getUint16(44, false); // offset to first data byte
+       const firstBlocketteOff   = view.getUint16(46, false); // offset to first blockette
+
+       // Read Blockette 1000 (Data Only SEED Blockette) to get encoding & record length
+       let encoding   = 11; // default Steim-2
+       let bigEndian  = true;
+         let recLenExp  = 9;  // default 512 bytes
+
+       if (firstBlocketteOff >= 48 && offset + firstBlocketteOff + 8 <= buffer.byteLength) {
+                let blkOff = firstBlocketteOff;
+                // Walk blockette chain looking for type 1000
+           for (let iter = 0; iter < 10; iter++) {
+                      const bType = view.getUint16(blkOff, false);
+                      const bNext = view.getUint16(blkOff + 2, false);
+                      if (bType === 1000) {
+                                   encoding  = bytes[offset + blkOff + 4];
+                                   bigEndian = bytes[offset + blkOff + 5] === 1;
+                                   recLenExp = bytes[offset + blkOff + 6];
+                                   break;
+                      }
+                      if (!bNext || bNext <= blkOff) break;
+                      blkOff = bNext;
+           }
+       }
+
+       const recLen    = Math.pow(2, recLenExp);
+         const le        = !bigEndian; // little-endian flag for DataView
 
        if (offset + recLen > buffer.byteLength) break;
          if (numSamples === 0 || dataOffset < 48 || dataOffset >= recLen) {
@@ -81,161 +115,180 @@ function parseMiniSEED(buffer) {
                   continue;
          }
 
-       const be = byteOrder !== 0; // big-endian?
        const dataStart = offset + dataOffset;
          const dataLen   = recLen - dataOffset;
 
        try {
-                const chunk = decodeSamples(buffer, dataStart, dataLen, numSamples, encoding, be);
-                for (const s of chunk) samples.push(s);
-       } catch (e) {
-                // skip bad record
-       }
+                const chunk = decodeData(buffer, dataStart, dataLen, numSamples, encoding, le);
+                for (const s of chunk) allSamples.push(s);
+       } catch (_) { /* skip bad record */ }
 
        offset += recLen;
   }
 
-  return samples;
+  return allSamples;
 }
 
-function decodeSamples(buffer, start, dataLen, numSamples, encoding, bigEndian) {
+function decodeData(buffer, start, dataLen, numSamples, encoding, le) {
      const view = new DataView(buffer, start, dataLen);
      const out  = [];
 
   switch (encoding) {
-     case 1: { // 16-bit integers
-              for (let i = 0; i < numSamples && (i * 2 + 2) <= dataLen; i++)
-                         out.push(view.getInt16(i * 2, !bigEndian));
+     case 1: // 16-bit integers
+         for (let i = 0; i < numSamples && (i + 1) * 2 <= dataLen; i++)
+                    out.push(view.getInt16(i * 2, le));
               break;
-     }
-     case 3: { // 32-bit integers
-              for (let i = 0; i < numSamples && (i * 4 + 4) <= dataLen; i++)
-                         out.push(view.getInt32(i * 4, !bigEndian));
+     case 3: // 32-bit integers
+         for (let i = 0; i < numSamples && (i + 1) * 4 <= dataLen; i++)
+                    out.push(view.getInt32(i * 4, le));
               break;
-     }
-     case 4: { // 32-bit float
-              for (let i = 0; i < numSamples && (i * 4 + 4) <= dataLen; i++)
-                         out.push(view.getFloat32(i * 4, !bigEndian));
+     case 4: // 32-bit float
+         for (let i = 0; i < numSamples && (i + 1) * 4 <= dataLen; i++)
+                    out.push(view.getFloat32(i * 4, le));
               break;
-     }
-     case 5: { // 64-bit float
-              for (let i = 0; i < numSamples && (i * 8 + 8) <= dataLen; i++)
-                         out.push(view.getFloat64(i * 8, !bigEndian));
+     case 5: // 64-bit float
+         for (let i = 0; i < numSamples && (i + 1) * 8 <= dataLen; i++)
+                    out.push(view.getFloat64(i * 8, le));
               break;
-     }
-     case 10: // Steim-1
-         return decodeSteim1(buffer, start, dataLen, numSamples, bigEndian);
-     case 11: // Steim-2
-         return decodeSteim2(buffer, start, dataLen, numSamples, bigEndian);
+     case 10:
+              return decodeSteim1(buffer, start, dataLen, numSamples);
+     case 11:
+              return decodeSteim2(buffer, start, dataLen, numSamples);
      default:
-              return []; // unsupported encoding
+              return [];
   }
      return out;
 }
 
-function decodeSteim1(buffer, start, dataLen, numSamples, bigEndian) {
+/* ─── Steim-1 decoder ────────────────────────────────────── */
+function decodeSteim1(buffer, start, dataLen, numSamples) {
+     const bytes  = new Uint8Array(buffer, start, dataLen);
      const view   = new DataView(buffer, start, dataLen);
      const frames = Math.floor(dataLen / 64);
      const out    = [];
-     let x0 = null, last = 0;
+     let   last   = 0;
 
-  for (let f = 0; f < frames; f++) {
-         const fo  = f * 64;
-         const cn  = view.getUint32(fo, !bigEndian); // control nibbles word
+  for (let f = 0; f < frames && out.length < numSamples; f++) {
+         const fo = f * 64;
+         const cn = view.getUint32(fo, false); // big-endian control nibbles
 
-       for (let w = 0; w < 16; w++) {
+       for (let w = 0; w < 16 && out.length < numSamples; w++) {
                 const nibble = (cn >>> (30 - w * 2)) & 0x3;
                 const wo     = fo + w * 4;
-                const word   = view.getInt32(wo, !bigEndian);
 
-           if (f === 0 && w === 1) { x0 = word; last = word; continue; }
-                if (f === 0 && w === 2) continue; // xn
+           if (f === 0 && w === 1) { last = view.getInt32(wo, false); continue; } // x0
+           if (f === 0 && w === 2) continue;                                       // xn
+           if (nibble === 0) continue;
 
-           if (nibble === 0) continue; // special
+           const word    = view.getUint32(wo, false);
+                const deltas  = [];
 
-           let deltas = [];
-                if (nibble === 1)      deltas = [word];                                              // 1×32
-           else if (nibble === 2) deltas = [(word >> 16) & 0xffff | (((word >> 16) & 0x8000) ? 0xffff0000 : 0),
-                                                                                   (word & 0xffff)       | ((word & 0x8000)         ? 0xffff0000 : 0)]; // 2×16
-           else if (nibble === 3) deltas = [((word >> 24) << 24) >> 24,
-                                                                                   ((word >> 16) << 24) >> 24,
-                                                                                   ((word >>  8) << 24) >> 24,
-                                                                                   ((word)       << 24) >> 24];                        // 4×8
+           if (nibble === 1) {
+                      deltas.push(view.getInt32(wo, false));
+           } else if (nibble === 2) {
+                      deltas.push(signExtend((word >>> 16) & 0xFFFF, 16));
+                      deltas.push(signExtend(word & 0xFFFF, 16));
+           } else if (nibble === 3) {
+                      deltas.push(signExtend((word >>> 24) & 0xFF, 8));
+                      deltas.push(signExtend((word >>> 16) & 0xFF, 8));
+                      deltas.push(signExtend((word >>> 8)  & 0xFF, 8));
+                      deltas.push(signExtend(word & 0xFF, 8));
+           }
 
            for (const d of deltas) {
                       last += d;
                       out.push(last);
-                      if (out.length >= numSamples) return out;
+                      if (out.length >= numSamples) break;
            }
        }
   }
      return out;
 }
 
-function decodeSteim2(buffer, start, dataLen, numSamples, bigEndian) {
+/* ─── Steim-2 decoder ────────────────────────────────────── */
+function decodeSteim2(buffer, start, dataLen, numSamples) {
      const view   = new DataView(buffer, start, dataLen);
      const frames = Math.floor(dataLen / 64);
      const out    = [];
-     let last = 0;
+     let   last   = 0;
 
-  for (let f = 0; f < frames; f++) {
+  for (let f = 0; f < frames && out.length < numSamples; f++) {
          const fo = f * 64;
-         const cn = view.getUint32(fo, !bigEndian);
+         const cn = view.getUint32(fo, false); // big-endian
 
-       for (let w = 0; w < 16; w++) {
+       for (let w = 0; w < 16 && out.length < numSamples; w++) {
                 const nibble = (cn >>> (30 - w * 2)) & 0x3;
-                if (nibble === 0) continue;
+                const wo     = fo + w * 4;
 
-           const wo   = fo + w * 4;
-                const word = view.getUint32(wo, !bigEndian);
+           // Frame 0: w=1 is x0 (first sample, stored as int32), w=2 is xn
+           if (f === 0 && w === 1) { last = view.getInt32(wo, false); continue; }
+                if (f === 0 && w === 2) continue;
 
-           if (f === 0 && (w === 1 || w === 2)) {
-                      if (w === 1) last = view.getInt32(wo, !bigEndian);
+           if (nibble === 0) continue; // no data in this word
+
+           const word   = view.getUint32(wo, false);
+                const deltas = [];
+
+           if (nibble === 1) {
+                      // One 32-bit uncompressed sample (not a difference)
+                  last = view.getInt32(wo, false);
+                      out.push(last);
                       continue;
            }
 
-           if (nibble === 1) { // uncompressed int32
-                  const v = view.getInt32(wo, !bigEndian);
-                      out.push(v); last = v;
-                      if (out.length >= numSamples) return out;
-                      continue;
-           }
-
-           // nibble 2 or 3: Steim-2 compressed
+           // nibble = 2 or 3: variable-length differences encoded in 30 bits
+           // Bits 31-30 = dnib (sub-type), bits 29-0 = data
            const dnib = (word >>> 30) & 0x3;
-                let deltas = [];
 
            if (nibble === 2) {
-                      if      (dnib === 1) deltas = steim2Unpack(word, 1, 30, true);
-                      else if (dnib === 2) deltas = steim2Unpack(word, 2, 15, true);
-                      else if (dnib === 3) deltas = steim2Unpack(word, 3, 10, true);
+                      if (dnib === 1) {
+                                   // 1 difference × 30 bits
+                        deltas.push(signExtend(word & 0x3FFFFFFF, 30));
+                      } else if (dnib === 2) {
+                                   // 2 differences × 15 bits
+                        deltas.push(signExtend((word >>> 15) & 0x7FFF, 15));
+                                   deltas.push(signExtend(word & 0x7FFF, 15));
+                      } else if (dnib === 3) {
+                                   // 3 differences × 10 bits
+                        deltas.push(signExtend((word >>> 20) & 0x3FF, 10));
+                                   deltas.push(signExtend((word >>> 10) & 0x3FF, 10));
+                                   deltas.push(signExtend(word & 0x3FF, 10));
+                      }
            } else { // nibble === 3
-                  if      (dnib === 0) deltas = steim2Unpack(word, 5,  6, true);
-                      else if (dnib === 1) deltas = steim2Unpack(word, 6,  5, true);
-                      else if (dnib === 2) deltas = steim2Unpack(word, 7,  4, true, true);
+                  if (dnib === 0) {
+                               // 5 differences × 6 bits
+                        deltas.push(signExtend((word >>> 24) & 0x3F, 6));
+                               deltas.push(signExtend((word >>> 18) & 0x3F, 6));
+                               deltas.push(signExtend((word >>> 12) & 0x3F, 6));
+                               deltas.push(signExtend((word >>> 6)  & 0x3F, 6));
+                               deltas.push(signExtend(word & 0x3F, 6));
+                  } else if (dnib === 1) {
+                               // 6 differences × 5 bits
+                        deltas.push(signExtend((word >>> 25) & 0x1F, 5));
+                               deltas.push(signExtend((word >>> 20) & 0x1F, 5));
+                               deltas.push(signExtend((word >>> 15) & 0x1F, 5));
+                               deltas.push(signExtend((word >>> 10) & 0x1F, 5));
+                               deltas.push(signExtend((word >>> 5)  & 0x1F, 5));
+                               deltas.push(signExtend(word & 0x1F, 5));
+                  } else if (dnib === 2) {
+                               // 7 differences × 4 bits
+                        deltas.push(signExtend((word >>> 24) & 0xF, 4));
+                               deltas.push(signExtend((word >>> 20) & 0xF, 4));
+                               deltas.push(signExtend((word >>> 16) & 0xF, 4));
+                               deltas.push(signExtend((word >>> 12) & 0xF, 4));
+                               deltas.push(signExtend((word >>> 8)  & 0xF, 4));
+                               deltas.push(signExtend((word >>> 4)  & 0xF, 4));
+                               deltas.push(signExtend(word & 0xF, 4));
+                  }
+                      // dnib === 3: not used in standard Steim-2
            }
 
            for (const d of deltas) {
                       last += d;
                       out.push(last);
-                      if (out.length >= numSamples) return out;
+                      if (out.length >= numSamples) break;
            }
        }
-  }
-     return out;
-}
-
-function steim2Unpack(word, count, bits, signed, skipDnib) {
-     const out    = [];
-     const start  = skipDnib ? 28 - (count - 1) * bits : 30 - count * bits;
-     const mask   = (1 << bits) - 1;
-     const signBit = 1 << (bits - 1);
-
-  for (let i = 0; i < count; i++) {
-         const shift = start - i * bits;
-         let v = (shift >= 0) ? ((word >>> shift) & mask) : 0;
-         if (signed && (v & signBit)) v |= ~mask; // sign extend
-       out.push(v | 0);
   }
      return out;
 }
@@ -250,7 +303,8 @@ async function fetchStations() {
             if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
             const text = await resp.text();
             const doc  = new DOMParser().parseFromString(text, 'application/xml');
-            const codes = Array.from(doc.querySelectorAll('Station')).map(n => n.getAttribute('code')).filter(Boolean);
+            const codes = Array.from(doc.querySelectorAll('Station'))
+              .map(n => n.getAttribute('code')).filter(Boolean);
             return [...new Set(codes)].sort();
      } catch (e) {
             console.warn('Station list fetch failed:', e);
@@ -261,7 +315,8 @@ async function fetchStations() {
 /* ─── Fetch waveform data ────────────────────────────────── */
 async function fetchWaveformData(station, startISO, endISO) {
      for (const channel of CHANNEL_PRIO) {
-            const url = `${FDSN_BASE}/dataselect/1/query?network=${NETWORK}&station=${station}&location=*&channel=${channel}&starttime=${startISO}&endtime=${endISO}&nodata=404`;
+            const url = `${FDSN_BASE}/dataselect/1/query?network=${NETWORK}&station=${station}` +
+                     `&location=*&channel=${channel}&starttime=${startISO}&endtime=${endISO}&nodata=404`;
             try {
                      const resp = await fetch(url);
                      if (resp.ok) {
@@ -280,7 +335,7 @@ function drawWaveform(canvas, buffer, channel) {
      const H   = canvas.height = canvas.offsetHeight || 140;
      ctx.clearRect(0, 0, W, H);
 
-  // Grid
+  // Background grid
   ctx.strokeStyle = 'rgba(255,255,255,0.04)';
      ctx.lineWidth   = 1;
      for (let i = 1; i < 4; i++) {
@@ -293,8 +348,7 @@ function drawWaveform(canvas, buffer, channel) {
      try {
             samples = parseMiniSEED(buffer);
      } catch (e) {
-            console.warn('MiniSEED parse error:', e);
-            drawError(ctx, W, H, 'Données illisibles');
+            drawError(ctx, W, H, 'Erreur de lecture');
             return;
      }
 
@@ -303,12 +357,16 @@ function drawWaveform(canvas, buffer, channel) {
          return;
   }
 
-  // Normalize
+  // Compute min/max for normalization
   let min = Infinity, max = -Infinity;
-     for (const v of samples) { if (v < min) min = v; if (v > max) max = v; }
+     for (const v of samples) {
+            if (v < min) min = v;
+            if (v > max) max = v;
+     }
      const range = max - min || 1;
      const pad   = H * 0.1;
 
+  // Color: orange for HF channels, blue for LF
   const isHF = channel.startsWith('H') || channel.startsWith('E');
      ctx.strokeStyle = isHF ? '#ff8c42' : '#5b9bd5';
      ctx.lineWidth   = 1.2;
@@ -322,7 +380,7 @@ function drawWaveform(canvas, buffer, channel) {
      }
      ctx.stroke();
 
-  // Zero line
+  // Zero / median line
   const zeroY = pad + (max / range) * (H - 2 * pad);
      ctx.strokeStyle = 'rgba(255,255,255,0.08)';
      ctx.lineWidth   = 0.5;
@@ -364,10 +422,10 @@ async function loadData() {
      $panels.querySelectorAll('.panel').forEach(p => p.remove());
      $specPanels.innerHTML = '';
 
-  const endTime   = new Date();
-     const startTime = new Date(endTime - windowMinutes * 60 * 1000);
-     const startISO  = startTime.toISOString().replace(/\.\d+Z$/, 'Z');
-     const endISO    = endTime.toISOString().replace(/\.\d+Z$/, 'Z');
+  const endTime    = new Date();
+     const startTime  = new Date(endTime - windowMinutes * 60 * 1000);
+     const startISO   = startTime.toISOString().replace(/\.\d+Z$/, 'Z');
+     const endISO     = endTime.toISOString().replace(/\.\d+Z$/, 'Z');
      const startLabel = fmtTime(startTime);
      const endLabel   = fmtTime(endTime);
 
@@ -388,20 +446,22 @@ async function loadData() {
                                           }
                                           loaded++;
                                  } else {
-                                          const body = panel.querySelector('.panel-body');
-                                          body.innerHTML = `<div class="panel-error">Pas de données disponibles pour cette station sur la période</div>`;
+                                          panel.querySelector('.panel-body').innerHTML =
+                                                     `<div class="panel-error">Pas de données disponibles pour cette station sur la période</div>`;
                                  }
   });
 
   await Promise.allSettled(tasks);
 
   $overlay.classList.add('hidden');
-     $lastUpdate.textContent  = fmtTime(new Date());
+     $lastUpdate.textContent   = fmtTime(new Date());
      $stationCount.textContent = `${loaded} / ${stations.length}`;
      isLoading = false;
 
-  setStatus(loaded > 0 ? 'live' : 'error',
-                        loaded > 0 ? `En direct · ${loaded} station${loaded > 1 ? 's' : ''}` : 'Aucune donnée reçue');
+  setStatus(
+         loaded > 0 ? 'live' : 'error',
+         loaded > 0 ? `En direct · ${loaded} station${loaded > 1 ? 's' : ''}` : 'Aucune donnée reçue'
+       );
 }
 
 /* ─── Station chips ──────────────────────────────────────── */
