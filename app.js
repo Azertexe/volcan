@@ -5,6 +5,13 @@
    MiniSEED 2.x parser: pure JS (Steim-1/2, Blockette 1000) — no CDN.
 ────────────────────────────────────────────────────────────── */
 
+/* ─── Backend (séismes / bulletin / webcams / crise) ──────
+   Remplace par l'URL Render après déploiement, p.ex. :
+   const API_BASE = 'https://volcan-backend.onrender.com';
+   Laisser '' désactive proprement les sections backend.
+*/
+const API_BASE = 'https://volcan-backend-xxxx.onrender.com';
+
 const FDSN_BASE   = 'https://ws.resif.fr/fdsnws';
 const NETWORK     = 'PF';
 const REFRESH_MS  = 60_000;
@@ -581,6 +588,137 @@ function startAutoRefresh() {
   refreshTimer = setInterval(loadData, REFRESH_MS);
 }
 
+/* ═══════════════════════════════════════════════════════════
+   BACKEND SECTIONS — séismes, bulletin, crise, webcams
+   ═══════════════════════════════════════════════════════════ */
+
+function fmtDate(s) {
+  if (!s) return '—';
+  const d = new Date(s);
+  if (isNaN(d)) return s;
+  return d.toLocaleString('fr-FR', {
+    day: '2-digit', month: '2-digit',
+    hour: '2-digit', minute: '2-digit',
+  });
+}
+
+function backendMissingHTML(target) {
+  target.innerHTML = `
+    <p class="status-warning">
+      Backend non configuré. Renseigne <code>API_BASE</code> en haut de
+      <code>app.js</code> avec l'URL de ton déploiement Render.
+    </p>`;
+}
+
+async function loadSeismes() {
+  const body   = document.getElementById('seismes-body');
+  const footer = document.getElementById('seismes-footer');
+  if (!API_BASE) { backendMissingHTML(body); footer.textContent = ''; return; }
+  try {
+    const r = await fetch(`${API_BASE}/seismes?hours=24`);
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const d = await r.json();
+    const c = d.counts || {};
+    body.innerHTML = `
+      <ul class="stat-list">
+        <li><span class="dot-sm sommital"></span>Sommitaux <strong>${c.sommital ?? 0}</strong></li>
+        <li><span class="dot-sm profond"></span>Profonds <strong>${c.profond ?? 0}</strong></li>
+        <li><span class="dot-sm local"></span>Locaux <strong>${c.local ?? 0}</strong></li>
+        <li><span class="dot-sm autre"></span>Autres <strong>${c.autre ?? 0}</strong></li>
+      </ul>`;
+    footer.textContent = `Fenêtre ${d.hours} h · source ${d.source} · MAJ ${fmtTime(new Date())}`;
+  } catch (e) {
+    body.innerHTML = `<p class="status-error">Indisponible : ${e.message}</p>`;
+    footer.textContent = '';
+  }
+}
+
+async function loadBulletin() {
+  const body   = document.getElementById('bulletin-body');
+  const footer = document.getElementById('bulletin-footer');
+  if (!API_BASE) { backendMissingHTML(body); footer.textContent = ''; return; }
+  try {
+    const r = await fetch(`${API_BASE}/bulletin`);
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const d = await r.json();
+    if (d.error) throw new Error(d.error);
+    const eb = d.eboulements || {};
+    body.innerHTML = `
+      <ul class="stat-list">
+        <li>VT sommitaux <strong>${d.vt_sommitaux ?? '—'}</strong></li>
+        <li>VT profonds <strong>${d.vt_profonds ?? '—'}</strong></li>
+        <li>Séismes locaux <strong>${d.seismes_locaux ?? '—'}</strong></li>
+        <li>Éboulements <strong>${eb.total ?? '—'}</strong></li>
+      </ul>
+      <p class="alerte-line">
+        Niveau d'alerte : <strong>${d.niveau_alerte || '—'}</strong>
+      </p>
+      ${eb.zones?.length ? `<p class="zones-line">Zones : ${eb.zones.join(', ')}</p>` : ''}`;
+    footer.textContent = `Bulletin du ${d.date || '—'} · figé 1×/jour`;
+  } catch (e) {
+    body.innerHTML = `<p class="status-error">Indisponible : ${e.message}</p>`;
+    footer.textContent = '';
+  }
+}
+
+async function loadCrise() {
+  const body   = document.getElementById('crise-body');
+  const footer = document.getElementById('crise-footer');
+  const badge  = document.getElementById('crise-niveau');
+  if (!API_BASE) { backendMissingHTML(body); footer.textContent = ''; badge.textContent = ''; return; }
+  try {
+    const r = await fetch(`${API_BASE}/crise?window=3&seuil=15`);
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const d = await r.json();
+    const status = d.crise_probable ? 'CRISE PROBABLE' : 'CALME';
+    badge.textContent = status;
+    badge.className = 'status-card-badge crise-badge ' + (d.crise_probable ? 'is-crise' : 'is-calme');
+    body.innerHTML = `
+      <ul class="stat-list">
+        <li>VT sommitaux <strong>${d.vt_sommitaux}</strong> / ${d.fenetre_h} h</li>
+        <li>Taux <strong>${d.taux_par_heure}</strong> / h</li>
+        <li>Seuil <strong>${d.seuil}</strong></li>
+        <li>OVPF : <strong>${d.niveau_alerte_ovpf || '—'}</strong></li>
+      </ul>`;
+    footer.textContent = `MAJ ${fmtTime(new Date())}`;
+  } catch (e) {
+    body.innerHTML = `<p class="status-error">Indisponible : ${e.message}</p>`;
+    footer.textContent = '';
+    badge.textContent = '';
+  }
+}
+
+async function loadWebcams() {
+  const grid = document.getElementById('webcams-grid');
+  if (!API_BASE) { backendMissingHTML(grid); return; }
+  try {
+    const r = await fetch(`${API_BASE}/webcams`);
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const d = await r.json();
+    grid.innerHTML = d.cams.map(c => `
+      <figure class="webcam">
+        <img data-cam="${c.file}" src="${d.base}${c.file}?t=${Date.now()}" alt="${c.label}" loading="lazy">
+        <figcaption>${c.label}<span>© OVPF-IPGP</span></figcaption>
+      </figure>`).join('');
+    grid.dataset.base = d.base;
+  } catch (e) {
+    grid.innerHTML = `<p class="status-error">Webcams indisponibles : ${e.message}</p>`;
+  }
+}
+
+function refreshWebcamImages() {
+  const base = document.getElementById('webcams-grid')?.dataset.base;
+  if (!base) return;
+  document.querySelectorAll('img[data-cam]').forEach(el => {
+    el.src = base + el.dataset.cam + '?t=' + Date.now();
+  });
+}
+
+function loadBackendSections() {
+  loadSeismes();
+  loadCrise();
+}
+
 /* ─── Init ───────────────────────────────────────────────── */
 async function init() {
   setStatus('', 'Connexion…');
@@ -594,6 +732,13 @@ async function init() {
   renderChips();
   await loadData();
   startAutoRefresh();
+
+  loadBackendSections();
+  loadBulletin();
+  loadWebcams();
+  setInterval(loadBackendSections, 120_000);
+  setInterval(loadBulletin, 3_600_000);
+  setInterval(refreshWebcamImages, 30_000);
 }
 
 init();
