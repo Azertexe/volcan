@@ -10,7 +10,7 @@
    const API_BASE = 'https://volcan-backend.onrender.com';
    Laisser '' désactive proprement les sections backend.
 */
-const API_BASE = 'https://volcan-backend-xxxx.onrender.com';
+const API_BASE = 'https://volcan-backend-gnem.onrender.com';
 
 const FDSN_BASE   = 'https://ws.resif.fr/fdsnws';
 const NETWORK     = 'PF';
