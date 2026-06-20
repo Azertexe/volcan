@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="fr">
+<html lang="fr" class="dark">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Volcan — Piton de la Fournaise · Trémor en temps réel</title>
+  <title>Piton de la Fournaise · Trémor en temps réel</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Kalam:wght@400;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
@@ -11,187 +11,183 @@
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🌋</text></svg>" />
 </head>
 <body>
-  <div id="root-container">
-    <!-- META BAR (browser of wireframes) -->
-    <div class="meta-bar">
-      <div class="meta-bar-inner">
+  <!-- TOP NAV -->
+  <nav class="top-nav">
+    <div class="nav-inner">
+      <div class="nav-left">
+        <div class="logo-box">🌋</div>
         <div>
-          <div class="meta-label">WIREFRAMES · LO-FI · DESKTOP</div>
-          <div class="meta-title">Refonte — Piton de la Fournaise</div>
-        </div>
-        <div class="meta-sitemap">
-          <div>SITEMAP PROPOSÉ</div>
-          <div>Accueil · Webcams · Courbes</div>
+          <div class="nav-title">Piton de la Fournaise</div>
+          <div class="nav-subtitle">Trémor volcanique · Réseau PF · Temps réel</div>
         </div>
       </div>
-
-      <div class="screen-switcher">
-        <button class="switcher-btn active" data-page="accueil">Accueil</button>
-        <button class="switcher-btn" data-page="webcams">Webcams</button>
-        <button class="switcher-btn" data-page="courbes">Courbes</button>
-      </div>
-    </div>
-
-    <!-- CAPTION -->
-    <div class="caption" id="caption"></div>
-
-    <!-- ARTBOARD -->
-    <div class="artboard">
-      <!-- Browser bar -->
-      <div class="fake-browser-bar">
-        <span class="browser-dot"></span>
-        <span class="browser-dot"></span>
-        <span class="browser-dot"></span>
-        <div class="browser-url">fournaise.re/<span id="url-path">accueil</span></div>
-      </div>
-
-      <!-- TOP NAV -->
-      <nav class="top-nav">
-        <div class="nav-left">
-          <div class="logo-box">🌋</div>
-          <div>
-            <div class="nav-title">Piton de la Fournaise</div>
-            <div class="nav-subtitle">Trémor volcanique · Réseau PF · Temps réel</div>
-          </div>
-        </div>
-        <div class="nav-right">
-          <a href="#" data-nav="accueil" class="nav-link active">Accueil</a>
-          <a href="#" data-nav="webcams" class="nav-link">Webcams</a>
-          <a href="#" data-nav="courbes" class="nav-link">Courbes</a>
-          <span class="status-live">
-            <span class="status-dot"></span>
-            En direct · 4 stations
-          </span>
-          <button id="theme-toggle" class="theme-btn">☀ Clair</button>
-        </div>
-      </nav>
-
-      <!-- SCREEN BODY -->
-      <div class="screen-body">
-        <!-- ACCUEIL PAGE -->
-        <div id="page-accueil" class="page-content active">
-          <!-- Crisis ribbon -->
-          <div class="crisis-ribbon">
-            <div class="crisis-left">
-              <span class="crisis-dot"></span>
-              <span class="crisis-label">ÉTAT DE CRISE</span>
-              <span class="crisis-value" id="crisis-value">VIGILANCE</span>
-            </div>
-            <div class="crisis-right">
-              <span><b>Sommitaux</b> <span id="stat-sommitaux">0</span></span>
-              <span><b>Profonds</b> <span id="stat-profonds">0</span></span>
-              <span><b>Éboulements</b> <span id="stat-eboulements">7</span></span>
-              <span><b>OVPF</b> <span id="stat-ovpf">Vigilance</span></span>
-            </div>
-          </div>
-
-          <div class="accueil-controls">
-            <span class="immersion-hint">Aperçu côte à côte — passez en plein écran pour superposer les deux.</span>
-            <button id="enter-immersion" class="btn-immersion">⛶ Mode immersion</button>
-          </div>
-
-          <!-- 50/50 Layout -->
-          <div id="accueil-normal" class="accueil-layout">
-            <div class="half-panel webcam-panel">
-              <div class="panel-header">
-                <span class="panel-title">Webcam</span>
-                <span class="panel-selector">Piton Bert ▾</span>
-              </div>
-              <div class="webcam-display">
-                <span class="webcam-placeholder">▦ FLUX WEBCAM</span>
-                <span class="webcam-timestamp">14:26:08 TU</span>
-              </div>
-            </div>
-
-            <div class="half-panel tremor-panel">
-              <div class="panel-header">
-                <span class="panel-title">Trémor</span>
-                <div class="header-controls">
-                  <span class="panel-selector">PF.BOR ▾</span>
-                  <span class="time-selector">30 min</span>
-                </div>
-              </div>
-              <div class="chart-section">
-                <div class="chart-label">SIGNAL BRUT</div>
-                <svg class="waveform-chart" viewBox="0 0 600 120" preserveAspectRatio="none"></svg>
-              </div>
-              <div class="chart-section">
-                <div class="chart-label">RSAM</div>
-                <svg class="rsam-chart" viewBox="0 0 600 120" preserveAspectRatio="none"></svg>
-              </div>
-            </div>
-          </div>
-
-          <!-- Immersion Mode -->
-          <div id="accueil-immersion" class="immersion-layout hidden">
-            <div class="immersion-background" id="immersion-bg">
-              <svg class="immersion-wave" viewBox="0 0 600 120" preserveAspectRatio="none"></svg>
-            </div>
-            <div class="immersion-top-label">
-              <span id="immersion-bg-label">FOND · TRÉMOR</span>
-              <span class="immersion-selector">PF.BOR ▾</span>
-            </div>
-            <span class="immersion-crisis">
-              <span class="crisis-dot-small"></span>
-              <span id="immersion-crisis-label">VIGILANCE</span>
-            </span>
-            <div class="immersion-controls">
-              <button id="swap-bg" class="btn-immersion-control">⇄ Inverser</button>
-              <button id="exit-immersion" class="btn-immersion-exit">⤢ Quitter</button>
-            </div>
-            <div id="immersion-widget" class="immersion-widget">
-              <div class="widget-header">
-                <span class="widget-drag-hint">⠿ glisser</span>
-                <span id="widget-title">Webcam ▾</span>
-              </div>
-              <div id="widget-content" class="widget-content"></div>
-            </div>
-          </div>
-        </div>
-
-        <!-- WEBCAMS PAGE -->
-        <div id="page-webcams" class="page-content">
-          <div class="webcams-header">
-            <span class="section-title">Webcams OVPF-IPGP</span>
-            <div class="filter-buttons">
-              <button class="filter-btn active">Toutes</button>
-              <button class="filter-btn">Sommet</button>
-              <button class="filter-btn">Enclos</button>
-              <button class="filter-btn">Pitons</button>
-            </div>
-          </div>
-          <div id="webcams-grid" class="webcams-grid"></div>
-        </div>
-
-        <!-- COURBES PAGE -->
-        <div id="page-courbes" class="page-content">
-          <div class="courbes-header">
-            <span class="section-title">Signaux sismiques — toutes les stations</span>
-            <div class="time-controls">
-              <button class="time-btn">15 min</button>
-              <button class="time-btn active">30 min</button>
-              <button class="time-btn">1 h</button>
-              <button class="time-btn refresh-btn">↻ Refresh</button>
-            </div>
-          </div>
-
-          <div class="station-selector-box">
-            <div class="selector-label">SÉLECTEUR DE STATIONS</div>
-            <div id="station-chips" class="station-chips"></div>
-          </div>
-
-          <div id="stations-list" class="stations-list"></div>
-        </div>
+      <div class="nav-right">
+        <a href="#" data-nav="accueil" class="nav-link active">Accueil</a>
+        <a href="#" data-nav="webcams" class="nav-link">Webcams</a>
+        <a href="#" data-nav="courbes" class="nav-link">Courbes</a>
+        <span class="status-live" id="status-live">
+          <span class="status-dot" id="status-dot"></span>
+          <span id="status-text">Connexion…</span>
+        </span>
+        <button id="theme-toggle" class="theme-btn" title="Basculer clair / sombre">☀ Clair</button>
       </div>
     </div>
+  </nav>
 
-    <!-- Legend foot -->
+  <main>
+    <!-- ===== ACCUEIL ===== -->
+    <section id="page-accueil" class="page-content active">
+      <!-- Crisis ribbon -->
+      <div class="crisis-ribbon" id="crisis-ribbon">
+        <div class="crisis-left">
+          <span class="crisis-dot"></span>
+          <span class="crisis-label">ÉTAT DE CRISE</span>
+          <span class="crisis-value" id="crisis-value">—</span>
+        </div>
+        <div class="crisis-right">
+          <span>Sommitaux <b id="stat-sommitaux">—</b></span>
+          <span>Profonds <b id="stat-profonds">—</b></span>
+          <span>Éboulements <b id="stat-eboulements">—</b></span>
+          <span>OVPF <b id="stat-ovpf">—</b></span>
+        </div>
+      </div>
+
+      <div class="accueil-controls">
+        <span class="immersion-hint">Webcam et courbe à parité — passez en plein écran pour superposer les deux.</span>
+        <button id="enter-immersion" class="btn-immersion">⛶ Mode immersion</button>
+      </div>
+
+      <!-- 50/50 Layout -->
+      <div id="accueil-normal" class="accueil-layout">
+        <!-- Webcam side -->
+        <div class="half-panel">
+          <div class="panel-header">
+            <span class="panel-title">Webcam</span>
+            <select class="panel-selector" id="accueil-cam-select"></select>
+          </div>
+          <div class="webcam-display" id="accueil-webcam">
+            <span class="webcam-placeholder">Chargement webcam…</span>
+          </div>
+        </div>
+        <!-- Tremor side -->
+        <div class="half-panel">
+          <div class="panel-header">
+            <span class="panel-title">Trémor</span>
+            <div class="header-controls">
+              <select class="panel-selector" id="accueil-station-select"></select>
+              <span class="time-selector" id="accueil-window">30 min</span>
+            </div>
+          </div>
+          <div class="chart-section">
+            <div class="chart-label">SIGNAL BRUT</div>
+            <svg class="waveform-chart" id="accueil-wave" viewBox="0 0 600 120" preserveAspectRatio="none"></svg>
+          </div>
+          <div class="chart-section">
+            <div class="chart-label">RSAM</div>
+            <svg class="rsam-chart" id="accueil-rsam" viewBox="0 0 600 120" preserveAspectRatio="none"></svg>
+          </div>
+        </div>
+      </div>
+
+      <!-- Immersion Mode -->
+      <div id="accueil-immersion" class="immersion-layout hidden">
+        <div class="immersion-background" id="immersion-bg">
+          <svg class="immersion-wave" id="immersion-wave" viewBox="0 0 600 120" preserveAspectRatio="none"></svg>
+        </div>
+        <div class="immersion-top-label">
+          <span id="immersion-bg-label">FOND · TRÉMOR</span>
+          <span class="immersion-selector" id="immersion-selector">PF.BOR</span>
+        </div>
+        <span class="immersion-crisis">
+          <span class="crisis-dot-small"></span>
+          <span id="immersion-crisis-label">—</span>
+        </span>
+        <div class="immersion-controls">
+          <button id="swap-bg" class="btn-immersion-control">⇄ Inverser</button>
+          <button id="exit-immersion" class="btn-immersion-exit">⤢ Quitter</button>
+        </div>
+        <div id="immersion-widget" class="immersion-widget">
+          <div class="widget-header">
+            <span class="widget-drag-hint">⠿ glisser</span>
+            <span id="widget-title">Webcam</span>
+          </div>
+          <div id="widget-content" class="widget-content"></div>
+        </div>
+      </div>
+
+      <!-- Status cards: séismes / bulletin / crise -->
+      <h2 class="section-title accueil-section">Activité sismique & alertes</h2>
+      <div class="status-grid">
+        <div class="status-card" id="card-seismes">
+          <div class="status-card-header">
+            <span class="status-card-title">Séismes — temps réel</span>
+            <span class="status-card-badge live-badge">LIVE</span>
+          </div>
+          <div class="status-card-body" id="seismes-body"><p class="status-loading">Chargement…</p></div>
+          <div class="status-card-footer" id="seismes-footer">—</div>
+        </div>
+        <div class="status-card" id="card-bulletin">
+          <div class="status-card-header">
+            <span class="status-card-title">Bilan officiel OVPF</span>
+            <span class="status-card-badge bull-badge">PRÉLIMINAIRE</span>
+          </div>
+          <div class="status-card-body" id="bulletin-body"><p class="status-loading">Chargement…</p></div>
+          <div class="status-card-footer" id="bulletin-footer">—</div>
+        </div>
+        <div class="status-card" id="card-crise">
+          <div class="status-card-header">
+            <span class="status-card-title">Indicateur de crise</span>
+            <span class="status-card-badge crise-badge" id="crise-niveau">—</span>
+          </div>
+          <div class="status-card-body" id="crise-body"><p class="status-loading">Chargement…</p></div>
+          <div class="status-card-footer" id="crise-footer">—</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== WEBCAMS ===== -->
+    <section id="page-webcams" class="page-content">
+      <div class="webcams-header">
+        <span class="section-title">Webcams OVPF-IPGP</span>
+        <div class="filter-buttons">
+          <button class="filter-btn active">Toutes</button>
+          <button class="filter-btn">Sommet</button>
+          <button class="filter-btn">Enclos</button>
+          <button class="filter-btn">Pitons</button>
+        </div>
+      </div>
+      <div id="webcams-grid" class="webcams-grid"><p class="status-loading">Chargement…</p></div>
+    </section>
+
+    <!-- ===== COURBES ===== -->
+    <section id="page-courbes" class="page-content">
+      <div class="courbes-header">
+        <span class="section-title">Signaux sismiques — toutes les stations</span>
+        <div class="time-controls">
+          <button class="time-btn" data-win="15">15 min</button>
+          <button class="time-btn active" data-win="30">30 min</button>
+          <button class="time-btn" data-win="60">1 h</button>
+          <button class="time-btn refresh-btn" id="btn-refresh">↻ Refresh</button>
+        </div>
+      </div>
+
+      <div class="station-selector-box">
+        <div class="selector-label">SÉLECTEUR DE STATIONS</div>
+        <div id="station-chips" class="station-chips"><span class="status-loading">Chargement des stations…</span></div>
+      </div>
+
+      <div id="stations-list" class="stations-list"></div>
+    </section>
+  </main>
+
+  <footer>
     <div class="legend-foot">
-      <span><span class="legend-line accent"></span>Signal brut</span>
+      <span><span class="legend-line accent"></span>Signal brut (waveform)</span>
       <span><span class="legend-line muted"></span>RSAM (amplitude moyenne)</span>
-      <span class="legend-source">Wireframe lo-fi · données factices · source réelle : ws.resif.fr / OVPF-IPGP</span>
+      <span class="legend-source">Source : <a href="https://ws.resif.fr/" target="_blank">ws.resif.fr</a> · Réseau <a href="https://volobsis.ipgp.fr/networks/detail/PF/" target="_blank">PF (OVPF-IPGP)</a></span>
     </div>
-  </div>
+    <p class="footer-note">Outil de visualisation indépendant. Pour les alertes officielles, consultez <a href="https://www.ipgp.fr/fr/ovpf/actualites-ovpf" target="_blank">l'OVPF</a>.</p>
+  </footer>
 
   <script src="app.js"></script>
 </body>
