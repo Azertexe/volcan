@@ -1,0 +1,7 @@
+flask
+flask-cors
+obspy
+numpy
+requests
+beautifulsoup4
+gunicorn
