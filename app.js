@@ -7,15 +7,28 @@
 
 const API_BASE = 'https://volcan-backend-gnem.onrender.com';
 const REFRESH_MS = 60_000;
+const FETCH_CONCURRENCY = 3; // limite les requêtes simultanées (backend free tier)
 
-// Stations PF affichées sur la page Courbes (+ webcam d'accueil).
+// Ordre d'affichage des zones du réseau PF.
+const ZONE_ORDER = ['Enclos Fouqué', 'Pentes N', 'Pentes S', 'Grand Brûlé', 'Hors enclos'];
+
+// Stations PF (page Courbes + sélecteur d'accueil), groupées par zone.
 const STATIONS = [
-  { id: 'BOR', name: 'Bory',            zone: 'ENCLOS FOUQUÉ' },
-  { id: 'CSS', name: 'Cassé Sud',       zone: 'ENCLOS FOUQUÉ' },
-  { id: 'FOR', name: 'Formica Leo',     zone: 'ENCLOS FOUQUÉ' },
-  { id: 'PER', name: 'Père',            zone: 'PENTES S' },
-  { id: 'RVL', name: 'Ravine Langevin', zone: 'PENTES S' },
-  { id: 'RER', name: "Rivière de l'Est", zone: 'GRAND BRÛLÉ' },
+  { id: 'BOR', name: 'Bory',            zone: 'Enclos Fouqué' },
+  { id: 'FEU', name: 'Feu',             zone: 'Enclos Fouqué' },
+  { id: 'CSS', name: 'Cassé Sud',       zone: 'Enclos Fouqué' },
+  { id: 'FOR', name: 'Formica Leo',     zone: 'Enclos Fouqué' },
+  { id: 'FER', name: 'Ferret',          zone: 'Enclos Fouqué' },
+  { id: 'NSR', name: 'Nez Scié',        zone: 'Pentes N' },
+  { id: 'SNE', name: 'Sainte-Rose NE',  zone: 'Pentes N' },
+  { id: 'PER', name: 'Père',            zone: 'Pentes S' },
+  { id: 'RVP', name: 'Ravine Plate',    zone: 'Pentes S' },
+  { id: 'RVL', name: 'Ravine Langevin', zone: 'Pentes S' },
+  { id: 'RER', name: 'Rempart Est',     zone: 'Grand Brûlé' },
+  { id: 'BEB', name: 'Basse Estelle',   zone: 'Grand Brûlé' },
+  { id: 'HDL', name: 'Hauts-de-Ligne',  zone: 'Hors enclos' },
+  { id: 'MAT', name: 'Matouta',         zone: 'Hors enclos' },
+  { id: 'PJR', name: 'Piton Jacquot',   zone: 'Hors enclos' },
 ];
 
 const LEVEL_LABELS = {
@@ -31,10 +44,15 @@ class VolcanApp {
       page: 'accueil',
       theme: localStorage.getItem('volcan-theme') || 'dark',
       accueilStation: 'BOR',
+      accueilWebcamIndex: 0,
       courbesMinutes: 10,
-      selectedStations: new Set(['BOR', 'CSS', 'FOR']),
+      selectedStations: new Set(['BOR', 'FOR', 'RER']),
       webcamBase: '',
       webcams: [],
+      immersion: false,
+      immersionBg: 'tremor',
+      crisisText: '…',
+      crisisLevel: 'vigilance',
     };
     this.refreshTimer = null;
     this.init();
@@ -44,6 +62,7 @@ class VolcanApp {
     document.documentElement.className = this.state.theme;
     this.syncThemeButton();
     this.attachEventListeners();
+    this.populateStationSelect();
     this.renderStationChips();
     this.switchPage('accueil');
   }
@@ -57,6 +76,18 @@ class VolcanApp {
       throw new Error(detail || `HTTP ${res.status}`);
     }
     return res.json();
+  }
+
+  // Exécute `worker` sur chaque item avec au plus `limit` tâches en parallèle.
+  async runPool(items, limit, worker) {
+    const queue = items.slice();
+    const runners = [];
+    for (let i = 0; i < Math.min(limit, queue.length); i++) {
+      runners.push((async () => {
+        while (queue.length) await worker(queue.shift());
+      })());
+    }
+    await Promise.all(runners);
   }
 
   setStatus(state, text) {
@@ -91,6 +122,34 @@ class VolcanApp {
         this.loadCourbes();
       });
     });
+
+    // Personnaliser l'accueil
+    document.getElementById('accueil-webcam-select').addEventListener('change', (e) => {
+      this.state.accueilWebcamIndex = parseInt(e.target.value, 10);
+      this.renderAccueilWebcam();
+    });
+    document.getElementById('accueil-station-select').addEventListener('change', (e) => {
+      this.state.accueilStation = e.target.value;
+      document.getElementById('accueil-station-label').textContent = 'PF.' + e.target.value;
+      this.loadAccueilCharts(e.target.value);
+    });
+
+    // Immersion
+    document.getElementById('enter-immersion').addEventListener('click', () => this.enterImmersion());
+    document.getElementById('exit-immersion').addEventListener('click', () => this.exitImmersion());
+    document.getElementById('swap-bg').addEventListener('click', () => this.swapImmersionBg());
+    document.querySelector('.widget-header').addEventListener('pointerdown', (e) => this.startWidgetDrag(e));
+
+    // Modal webcam : clic sur une image (accueil + grille) → pop-up
+    document.addEventListener('click', (e) => {
+      const trigger = e.target.closest('[data-cam]');
+      if (trigger) this.openWebcamModal(parseInt(trigger.dataset.cam, 10));
+    });
+    document.getElementById('webcam-modal-close').addEventListener('click', () => this.closeWebcamModal());
+    document.getElementById('webcam-modal-backdrop').addEventListener('click', () => this.closeWebcamModal());
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') this.closeWebcamModal();
+    });
   }
 
   toggleTheme() {
@@ -106,6 +165,7 @@ class VolcanApp {
   }
 
   switchPage(page) {
+    if (this.state.immersion) this.exitImmersion();
     this.state.page = page;
     document.querySelectorAll('.page-content')
       .forEach(p => p.classList.remove('active'));
@@ -133,11 +193,8 @@ class VolcanApp {
     const station = this.state.accueilStation;
     document.getElementById('accueil-station-label').textContent = 'PF.' + station;
 
-    // Ruban de crise : crise + bulletin + séismes
     this.loadCrisisRibbon();
-    // Webcam d'accueil
     this.loadAccueilWebcam();
-    // Courbes trémor de la station par défaut
     this.loadAccueilCharts(station);
   }
 
@@ -159,11 +216,12 @@ class VolcanApp {
         niveau = crise.value.niveau_alerte_ovpf;
       }
 
-      let crise_probable = crise.status === 'fulfilled' && crise.value.crise_probable;
-      crisisVal.textContent = crise_probable ? 'CRISE PROBABLE' : (niveau || 'VIGILANCE');
-      crisisDot.className = 'crisis-dot ' + (crise_probable ? 'level-crise' : 'level-vigilance');
+      const crise_probable = crise.status === 'fulfilled' && crise.value.crise_probable;
+      this.state.crisisText = crise_probable ? 'CRISE PROBABLE' : (niveau || 'VIGILANCE');
+      this.state.crisisLevel = crise_probable ? 'crise' : 'vigilance';
+      crisisVal.textContent = this.state.crisisText;
+      crisisDot.className = 'crisis-dot level-' + this.state.crisisLevel;
 
-      // Comptages
       if (seismes.status === 'fulfilled') {
         document.getElementById('stat-sommitaux').textContent = seismes.value.counts?.sommital ?? 0;
         document.getElementById('stat-profonds').textContent = seismes.value.counts?.profond ?? 0;
@@ -182,22 +240,26 @@ class VolcanApp {
   async loadAccueilWebcam() {
     try {
       if (!this.state.webcams.length) await this.fetchWebcams();
-      const cam = this.state.webcams[0];
-      if (!cam) return;
-      document.getElementById('accueil-webcam-name').textContent = cam.label;
-      const box = document.getElementById('accueil-webcam');
-      box.innerHTML = this.webcamImgHtml(cam);
+      this.populateWebcamSelect();
+      this.renderAccueilWebcam();
     } catch (_) {
       document.getElementById('accueil-webcam').innerHTML =
         '<span class="webcam-placeholder">Webcam indisponible</span>';
     }
   }
 
+  renderAccueilWebcam() {
+    const idx = this.state.accueilWebcamIndex;
+    const cam = this.state.webcams[idx];
+    if (!cam) return;
+    document.getElementById('accueil-webcam-name').textContent = cam.label;
+    document.getElementById('accueil-webcam').innerHTML = this.webcamImgHtml(cam, idx);
+  }
+
   async loadAccueilCharts(station) {
     const waveSvg = document.querySelector('.waveform-chart');
     const rsamSvg = document.querySelector('.rsam-chart');
 
-    // Signal brut
     try {
       const sig = await this.api(`/signal?station=${station}&minutes=10`);
       this.drawLine(waveSvg, sig.v, 'var(--accent)');
@@ -208,7 +270,6 @@ class VolcanApp {
       document.getElementById('accueil-signal-meta').textContent = '· indisponible';
     }
 
-    // RSAM (trémor)
     try {
       const tr = await this.api(`/tremor?station=${station}&hours=6`);
       this.drawLine(rsamSvg, tr.rms, 'var(--ink)', 0.55);
@@ -226,7 +287,26 @@ class VolcanApp {
     }
   }
 
-  /* ─── Page WEBCAMS ───────────────────────────────────── */
+  /* ─── Sélecteurs « personnaliser » ───────────────────── */
+  populateStationSelect() {
+    const sel = document.getElementById('accueil-station-select');
+    sel.innerHTML = ZONE_ORDER.map(zone => {
+      const opts = STATIONS.filter(s => s.zone === zone)
+        .map(s => `<option value="${s.id}">PF.${s.id} · ${s.name}</option>`).join('');
+      return `<optgroup label="${zone}">${opts}</optgroup>`;
+    }).join('');
+    sel.value = this.state.accueilStation;
+  }
+
+  populateWebcamSelect() {
+    const sel = document.getElementById('accueil-webcam-select');
+    if (sel.options.length === this.state.webcams.length && sel.options.length) return;
+    sel.innerHTML = this.state.webcams
+      .map((c, i) => `<option value="${i}">${c.label}</option>`).join('');
+    sel.value = this.state.accueilWebcamIndex;
+  }
+
+  /* ─── Webcams ────────────────────────────────────────── */
   async fetchWebcams() {
     const data = await this.api('/webcams');
     this.state.webcamBase = data.base;
@@ -234,10 +314,13 @@ class VolcanApp {
     return this.state.webcams;
   }
 
-  webcamImgHtml(cam) {
-    const url = this.state.webcamBase + cam.file + '?_=' + Date.now();
+  camUrl(cam) {
+    return this.state.webcamBase + cam.file + '?_=' + Date.now();
+  }
+
+  webcamImgHtml(cam, index) {
     return `
-      <img class="webcam-img" src="${url}" alt="${cam.label}"
+      <img class="webcam-img" src="${this.camUrl(cam)}" alt="${cam.label}" data-cam="${index}"
            onerror="this.style.display='none';this.nextElementSibling.style.display='flex';" />
       <span class="webcam-placeholder" style="display:none">Image indisponible</span>
       <span class="webcam-timestamp">MAJ ${new Date().toLocaleTimeString('fr-FR')}</span>
@@ -249,9 +332,9 @@ class VolcanApp {
     try {
       if (force || !this.state.webcams.length) await this.fetchWebcams();
       this.setStatus('ok', 'En direct · ' + new Date().toLocaleTimeString('fr-FR'));
-      grid.innerHTML = this.state.webcams.map(cam => `
+      grid.innerHTML = this.state.webcams.map((cam, i) => `
         <div class="webcam-card">
-          ${this.webcamImgHtml(cam)}
+          ${this.webcamImgHtml(cam, i)}
           <div class="webcam-card-footer">
             <span class="webcam-card-name">${cam.label}</span>
             <span class="webcam-card-credit">© OVPF-IPGP</span>
@@ -264,12 +347,124 @@ class VolcanApp {
     }
   }
 
-  /* ─── Page COURBES ───────────────────────────────────── */
+  /* ─── Modal webcam (pop-up intégré) ──────────────────── */
+  openWebcamModal(index) {
+    const cam = this.state.webcams[index];
+    if (!cam) return;
+    document.getElementById('webcam-modal-title').textContent = cam.label;
+    const img = document.getElementById('webcam-modal-img');
+    img.src = this.camUrl(cam);
+    img.alt = cam.label;
+    document.getElementById('webcam-modal').classList.remove('hidden');
+  }
+
+  closeWebcamModal() {
+    document.getElementById('webcam-modal').classList.add('hidden');
+  }
+
+  /* ─── Mode immersion ─────────────────────────────────── */
+  enterImmersion() {
+    this.state.immersion = true;
+    this.state.immersionBg = 'tremor';
+    document.getElementById('accueil-normal').style.display = 'none';
+    document.getElementById('accueil-immersion').classList.remove('hidden');
+
+    const cont = document.getElementById('accueil-immersion');
+    const widget = document.getElementById('immersion-widget');
+    widget.style.left = Math.max(20, cont.clientWidth - 360) + 'px';
+    widget.style.top = '70px';
+
+    this.renderImmersion();
+  }
+
+  exitImmersion() {
+    this.state.immersion = false;
+    document.getElementById('accueil-normal').style.display = '';
+    document.getElementById('accueil-immersion').classList.add('hidden');
+  }
+
+  swapImmersionBg() {
+    this.state.immersionBg = this.state.immersionBg === 'tremor' ? 'webcam' : 'tremor';
+    this.renderImmersion();
+  }
+
+  async renderImmersion() {
+    const station = this.state.accueilStation;
+    const idx = this.state.accueilWebcamIndex;
+    const cam = this.state.webcams[idx];
+    const bg = document.getElementById('immersion-bg');
+    const bgLabel = document.getElementById('immersion-bg-label');
+    const bgImg = document.getElementById('immersion-bg-img');
+    const waveSvg = bg.querySelector('svg');
+    const widget = document.getElementById('widget-content');
+
+    document.getElementById('immersion-selector').textContent = 'PF.' + station;
+    document.getElementById('immersion-crisis-label').textContent = this.state.crisisText || 'VIGILANCE';
+    document.getElementById('immersion-crisis-dot').className =
+      'crisis-dot-small level-' + (this.state.crisisLevel || 'vigilance');
+
+    if (this.state.immersionBg === 'tremor') {
+      bg.classList.remove('webcam-bg');
+      bgLabel.textContent = 'FOND · TRÉMOR';
+      bgImg.style.display = 'none';
+      waveSvg.style.display = '';
+      document.getElementById('widget-title').textContent = 'Webcam';
+      widget.innerHTML = cam
+        ? `<div class="widget-webcam">${this.webcamImgHtml(cam, idx)}</div>`
+        : '<div class="widget-webcam"><span class="webcam-placeholder">Webcam indispo</span></div>';
+      try {
+        const sig = await this.api(`/signal?station=${station}&minutes=10`);
+        this.drawLine(waveSvg, sig.v, 'var(--accent)');
+      } catch (_) { this.drawError(waveSvg); }
+    } else {
+      bg.classList.add('webcam-bg');
+      bgLabel.textContent = 'FOND · WEBCAM';
+      waveSvg.style.display = 'none';
+      if (cam) { bgImg.src = this.camUrl(cam); bgImg.style.display = 'block'; }
+      document.getElementById('widget-title').textContent = 'PF.' + station;
+      widget.innerHTML =
+        '<div class="widget-tremor"><div class="widget-tremor-label">SIGNAL BRUT</div>' +
+        '<svg class="widget-chart" viewBox="0 0 600 120" preserveAspectRatio="none"></svg></div>';
+      try {
+        const sig = await this.api(`/signal?station=${station}&minutes=10`);
+        this.drawLine(widget.querySelector('svg'), sig.v, 'var(--accent)');
+      } catch (_) { this.drawError(widget.querySelector('svg')); }
+    }
+  }
+
+  startWidgetDrag(e) {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    const widget = document.getElementById('immersion-widget');
+    const startX = e.clientX, startY = e.clientY;
+    const curX = parseFloat(widget.style.left) || 60;
+    const curY = parseFloat(widget.style.top) || 60;
+    const onMove = (ev) => {
+      widget.style.left = (curX + ev.clientX - startX) + 'px';
+      widget.style.top = (curY + ev.clientY - startY) + 'px';
+    };
+    const onUp = () => {
+      document.removeEventListener('pointermove', onMove);
+      document.removeEventListener('pointerup', onUp);
+    };
+    document.addEventListener('pointermove', onMove);
+    document.addEventListener('pointerup', onUp);
+  }
+
+  /* ─── Page COURBES (groupée par zone) ────────────────── */
   renderStationChips() {
     const container = document.getElementById('station-chips');
-    container.innerHTML = STATIONS.map(st => {
-      const active = this.state.selectedStations.has(st.id);
-      return `<button class="station-chip ${active ? 'active' : ''}" data-station="${st.id}">${st.id}</button>`;
+    container.innerHTML = ZONE_ORDER.map(zone => {
+      const sts = STATIONS.filter(s => s.zone === zone);
+      if (!sts.length) return '';
+      const chips = sts.map(s => {
+        const active = this.state.selectedStations.has(s.id);
+        return `<button class="station-chip ${active ? 'active' : ''}" data-station="${s.id}">${s.id}</button>`;
+      }).join('');
+      return `<div class="chip-zone-group">
+        <span class="chip-zone-label">${zone}</span>
+        <div class="chip-zone-row">${chips}</div>
+      </div>`;
     }).join('');
 
     container.querySelectorAll('.station-chip').forEach(chip => {
@@ -287,17 +482,8 @@ class VolcanApp {
     });
   }
 
-  async loadCourbes() {
-    const container = document.getElementById('stations-list');
-    const stations = STATIONS.filter(st => this.state.selectedStations.has(st.id));
-    if (!stations.length) {
-      container.innerHTML = '<div class="empty-msg">Sélectionnez au moins une station.</div>';
-      return;
-    }
-
-    this.setStatus('loading', 'Mise à jour…');
-    // Squelette immédiat
-    container.innerHTML = stations.map(st => `
+  stationCardHtml(st) {
+    return `
       <div class="station-card" id="card-${st.id}">
         <div class="station-card-header">
           <div class="station-info">
@@ -317,38 +503,70 @@ class VolcanApp {
             <svg class="station-rsam" viewBox="0 0 600 120" preserveAspectRatio="none"></svg>
           </div>
         </div>
-      </div>
-    `).join('');
+      </div>`;
+  }
+
+  async loadCourbes() {
+    const container = document.getElementById('stations-list');
+    const selected = STATIONS.filter(st => this.state.selectedStations.has(st.id));
+    if (!selected.length) {
+      container.innerHTML = '<div class="empty-msg">Sélectionnez au moins une station.</div>';
+      this.setStatus('ok', 'Prêt');
+      return;
+    }
+
+    this.setStatus('loading', 'Mise à jour…');
+
+    // Squelette groupé par zone
+    container.innerHTML = ZONE_ORDER.map(zone => {
+      const sts = selected.filter(s => s.zone === zone);
+      if (!sts.length) return '';
+      return `<section class="zone-section">
+        <h3 class="zone-heading">${zone} <span class="zone-count">${sts.length}</span></h3>
+        ${sts.map(st => this.stationCardHtml(st)).join('')}
+      </section>`;
+    }).join('');
 
     const minutes = this.state.courbesMinutes;
-    let anyError = false;
-    await Promise.all(stations.map(async st => {
+    let loaded = 0;
+
+    await this.runPool(selected, FETCH_CONCURRENCY, async (st) => {
       const card = document.getElementById(`card-${st.id}`);
+      if (!card) return;
       const waveSvg = card.querySelector('.station-waveform');
       const rsamSvg = card.querySelector('.station-rsam');
       const timeEl = document.getElementById(`time-${st.id}`);
+      let ok = false;
 
       try {
         const sig = await this.api(`/signal?station=${st.id}&minutes=${minutes}`);
         this.drawLine(waveSvg, sig.v, 'var(--accent)');
         timeEl.textContent = `${sig.channel} · ${minutes} min`;
+        ok = true;
       } catch (err) {
         this.drawError(waveSvg);
         timeEl.textContent = 'pas de données';
-        anyError = true;
       }
 
       try {
         const tr = await this.api(`/tremor?station=${st.id}&hours=6`);
         this.drawLine(rsamSvg, tr.rms, 'var(--ink)', 0.55);
+        ok = true;
       } catch (err) {
         this.drawError(rsamSvg);
-        anyError = true;
       }
-    }));
 
-    this.setStatus(anyError ? 'error' : 'ok',
-      anyError ? 'Données partielles' : 'En direct · ' + new Date().toLocaleTimeString('fr-FR'));
+      if (ok) loaded++;
+    });
+
+    const time = new Date().toLocaleTimeString('fr-FR');
+    if (loaded === selected.length) {
+      this.setStatus('ok', `En direct · ${time}`);
+    } else if (loaded > 0) {
+      this.setStatus('ok', `En direct · ${loaded}/${selected.length} stations · ${time}`);
+    } else {
+      this.setStatus('error', 'Aucune donnée — serveur injoignable');
+    }
   }
 
   /* ─── Dessin SVG ─────────────────────────────────────── */
