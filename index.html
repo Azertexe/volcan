@@ -23,7 +23,8 @@
     <div class="nav-right">
       <a href="#" data-nav="accueil" class="nav-link active">Accueil</a>
       <a href="#" data-nav="webcams" class="nav-link">Webcams</a>
-      <a href="#" data-nav="courbes" class="nav-link">Courbes</a>
+      <a href="#" data-nav="tremor" class="nav-link">Trémor</a>
+      <a href="#" data-nav="signal" class="nav-link">Signal brut</a>
       <span class="status-live" id="status-live">
         <span class="status-dot" id="status-dot"></span>
         <span id="status-text">Connexion…</span>
@@ -35,11 +36,11 @@
   <main class="screen-body">
     <!-- ACCUEIL PAGE -->
     <div id="page-accueil" class="page-content active">
-      <!-- Crisis ribbon -->
+      <!-- Crisis ribbon (état de crise sismique — séismes/bulletin OVPF) -->
       <div class="crisis-ribbon">
         <div class="crisis-left">
           <span class="crisis-dot" id="crisis-dot"></span>
-          <span class="crisis-label">ÉTAT</span>
+          <span class="crisis-label">CRISE SISMIQUE</span>
           <span class="crisis-value" id="crisis-value">…</span>
         </div>
         <div class="crisis-right">
@@ -66,7 +67,7 @@
         <button id="enter-immersion" class="btn-immersion">⛶ Mode immersion</button>
       </div>
 
-      <!-- 50/50 Layout -->
+      <!-- 50/50 Layout : webcam + trémor (lisible) -->
       <div id="accueil-normal" class="accueil-layout">
         <div class="half-panel webcam-panel">
           <div class="panel-header">
@@ -81,18 +82,11 @@
         <div class="half-panel tremor-panel">
           <div class="panel-header">
             <span class="panel-title">Trémor</span>
-            <div class="header-controls">
-              <span class="panel-selector" id="accueil-station-label">PF.BOR</span>
-              <span class="time-selector" id="accueil-tremor-level">—</span>
-            </div>
+            <span class="panel-selector" id="accueil-station-label">PF.BOR</span>
           </div>
-          <div class="chart-section">
-            <div class="chart-label">SIGNAL BRUT <span class="chart-meta" id="accueil-signal-meta"></span></div>
-            <svg class="waveform-chart" viewBox="0 0 600 120" preserveAspectRatio="none"></svg>
-          </div>
-          <div class="chart-section">
-            <div class="chart-label">RSAM <span class="chart-meta" id="accueil-rsam-meta"></span></div>
-            <svg class="rsam-chart" viewBox="0 0 600 120" preserveAspectRatio="none"></svg>
+          <div class="tremor-state" id="accueil-tremor-state">…</div>
+          <div class="chart-host" id="accueil-tremor-chart">
+            <span class="webcam-placeholder">Chargement…</span>
           </div>
         </div>
       </div>
@@ -134,32 +128,54 @@
       <div id="webcams-grid" class="webcams-grid"></div>
     </div>
 
-    <!-- COURBES PAGE -->
-    <div id="page-courbes" class="page-content">
+    <!-- TRÉMOR PAGE -->
+    <div id="page-tremor" class="page-content">
       <div class="courbes-header">
-        <span class="section-title">Signaux sismiques — stations PF</span>
+        <span class="section-title">Trémor volcanique — par station</span>
+        <div class="time-controls">
+          <button class="time-btn active" data-hours="6">6 h</button>
+          <button class="time-btn" data-hours="12">12 h</button>
+          <button class="time-btn" data-hours="24">24 h</button>
+          <button class="time-btn refresh-btn" id="tremor-refresh">↻ Rafraîchir</button>
+        </div>
+      </div>
+      <p class="page-help">
+        Amplitude RMS du signal filtré 1.5–5 Hz (en <b>counts</b>). État déduit du rapport au
+        niveau de base : <span class="level-calme">repos</span> &lt;1.5× ·
+        <span class="level-vigilance">réveil</span> 1.5–3× ·
+        <span class="level-crise">crise</span> 3–10× ·
+        <span class="level-eruption">éruption</span> ≥10×.
+      </p>
+      <div class="station-selector-box">
+        <div class="selector-label">SÉLECTEUR DE STATIONS — PAR ZONE</div>
+        <div id="tremor-chips" class="station-chips"></div>
+      </div>
+      <div id="tremor-list" class="stations-list"></div>
+    </div>
+
+    <!-- SIGNAL BRUT PAGE -->
+    <div id="page-signal" class="page-content">
+      <div class="courbes-header">
+        <span class="section-title">Signal brut (forme d'onde) — par station</span>
         <div class="time-controls">
           <button class="time-btn" data-minutes="5">5 min</button>
           <button class="time-btn active" data-minutes="10">10 min</button>
           <button class="time-btn" data-minutes="30">30 min</button>
-          <button class="time-btn refresh-btn" id="courbes-refresh">↻ Rafraîchir</button>
+          <button class="time-btn refresh-btn" id="signal-refresh">↻ Rafraîchir</button>
         </div>
       </div>
-
+      <p class="page-help">Forme d'onde brute décimée (counts) telle que mesurée par le capteur.</p>
       <div class="station-selector-box">
         <div class="selector-label">SÉLECTEUR DE STATIONS — PAR ZONE</div>
-        <div id="station-chips" class="station-chips"></div>
+        <div id="signal-chips" class="station-chips"></div>
       </div>
-
-      <div id="stations-list" class="stations-list"></div>
+      <div id="signal-list" class="stations-list"></div>
     </div>
   </main>
 
   <!-- Legend foot -->
   <footer class="legend-foot">
-    <span><span class="legend-line accent"></span>Signal brut (bande sismique)</span>
-    <span><span class="legend-line muted"></span>RSAM — RMS trémor 1.5–5 Hz</span>
-    <span class="legend-source">Données : RESIF / OVPF-IPGP · backend volcan</span>
+    <span class="legend-source">Données : RESIF FDSN / OVPF-IPGP · backend volcan</span>
   </footer>
 
   <!-- WEBCAM MODAL (pop-up intégré) -->
