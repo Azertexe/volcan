@@ -50,8 +50,24 @@
         </div>
       </div>
 
+      <!-- Personnaliser le menu + immersion -->
+      <div class="accueil-controls">
+        <div class="customize-row">
+          <span class="customize-label">Personnaliser&nbsp;:</span>
+          <label class="custom-select">
+            <span>Webcam</span>
+            <select id="accueil-webcam-select"></select>
+          </label>
+          <label class="custom-select">
+            <span>Station</span>
+            <select id="accueil-station-select"></select>
+          </label>
+        </div>
+        <button id="enter-immersion" class="btn-immersion">⛶ Mode immersion</button>
+      </div>
+
       <!-- 50/50 Layout -->
-      <div class="accueil-layout">
+      <div id="accueil-normal" class="accueil-layout">
         <div class="half-panel webcam-panel">
           <div class="panel-header">
             <span class="panel-title">Webcam</span>
@@ -80,6 +96,33 @@
           </div>
         </div>
       </div>
+
+      <!-- Immersion Mode -->
+      <div id="accueil-immersion" class="immersion-layout hidden">
+        <div class="immersion-background" id="immersion-bg">
+          <svg class="immersion-wave" viewBox="0 0 600 120" preserveAspectRatio="none"></svg>
+          <img class="immersion-webcam-img" id="immersion-bg-img" alt="" />
+        </div>
+        <div class="immersion-top-label">
+          <span id="immersion-bg-label">FOND · TRÉMOR</span>
+          <span class="immersion-selector" id="immersion-selector">PF.BOR</span>
+        </div>
+        <span class="immersion-crisis">
+          <span class="crisis-dot-small" id="immersion-crisis-dot"></span>
+          <span id="immersion-crisis-label">…</span>
+        </span>
+        <div class="immersion-controls">
+          <button id="swap-bg" class="btn-immersion-control">⇄ Inverser</button>
+          <button id="exit-immersion" class="btn-immersion-exit">⤢ Quitter</button>
+        </div>
+        <div id="immersion-widget" class="immersion-widget">
+          <div class="widget-header">
+            <span class="widget-drag-hint">⠿ glisser</span>
+            <span id="widget-title">Webcam</span>
+          </div>
+          <div id="widget-content" class="widget-content"></div>
+        </div>
+      </div>
     </div>
 
     <!-- WEBCAMS PAGE -->
@@ -104,7 +147,7 @@
       </div>
 
       <div class="station-selector-box">
-        <div class="selector-label">SÉLECTEUR DE STATIONS</div>
+        <div class="selector-label">SÉLECTEUR DE STATIONS — PAR ZONE</div>
         <div id="station-chips" class="station-chips"></div>
       </div>
 
@@ -118,6 +161,20 @@
     <span><span class="legend-line muted"></span>RSAM — RMS trémor 1.5–5 Hz</span>
     <span class="legend-source">Données : RESIF / OVPF-IPGP · backend volcan</span>
   </footer>
+
+  <!-- WEBCAM MODAL (pop-up intégré) -->
+  <div id="webcam-modal" class="webcam-modal hidden">
+    <div class="webcam-modal-backdrop" id="webcam-modal-backdrop"></div>
+    <div class="webcam-modal-content">
+      <div class="webcam-modal-header">
+        <span id="webcam-modal-title">Webcam</span>
+        <button id="webcam-modal-close" class="btn-reduce">⤡ Réduire</button>
+      </div>
+      <div class="webcam-modal-body">
+        <img id="webcam-modal-img" alt="" />
+      </div>
+    </div>
+  </div>
 
   <script src="app.js"></script>
 </body>
