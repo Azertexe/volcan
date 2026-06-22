@@ -37,7 +37,7 @@ html, body { margin: 0; padding: 0; min-height: 100vh; width: 100%; }
 body { background: var(--paper); color: var(--ink); font-family: var(--font-mono); }
 ::selection { background: rgba(255, 122, 47, 0.3); }
 
-/* Pleine largeur — le contenu occupe tout l'écran */
+/* Pleine largeur */
 .top-nav, .screen-body, .legend-foot { width: 100%; }
 
 /* ─── TOP NAV ─────────────────────────────────────── */
@@ -80,7 +80,7 @@ body { background: var(--paper); color: var(--ink); font-family: var(--font-mono
 .nav-title { font-family: var(--font-serif); font-weight: 700; font-size: 20px; line-height: 1; }
 .nav-subtitle { font-family: var(--font-mono); font-size: 10px; color: var(--muted); margin-top: 3px; }
 
-.nav-right { display: flex; align-items: center; gap: 22px; position: relative; z-index: 1; }
+.nav-right { display: flex; align-items: center; gap: 20px; position: relative; z-index: 1; flex-wrap: wrap; }
 
 .nav-link {
   font-family: var(--font-mono);
@@ -143,6 +143,15 @@ body { background: var(--paper); color: var(--ink); font-family: var(--font-mono
 .page-content { display: none; }
 .page-content.active { display: block; }
 
+.page-help {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--muted);
+  line-height: 1.6;
+  margin: 0 0 14px;
+}
+.page-help b { color: var(--ink); }
+
 /* ─── Niveaux (couleurs) ──────────────────────────────── */
 .level-calme { color: var(--crisis-calm); }
 .level-vigilance { color: var(--crisis); }
@@ -186,12 +195,12 @@ body { background: var(--paper); color: var(--ink); font-family: var(--font-mono
 
 .crisis-left { position: relative; display: flex; align-items: center; gap: 13px; }
 .crisis-dot { width: 14px; height: 14px; border-radius: 50%; background: var(--crisis); }
-.crisis-label { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.18em; color: var(--muted); }
+.crisis-label { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.16em; color: var(--muted); }
 
 .crisis-value {
   font-family: var(--font-serif);
   font-weight: 700;
-  font-size: 28px;
+  font-size: 26px;
   line-height: 1;
   color: var(--crisis);
 }
@@ -220,7 +229,6 @@ body { background: var(--paper); color: var(--ink); font-family: var(--font-mono
 
 .customize-row { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
 .customize-label { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.1em; color: var(--muted); }
-
 .custom-select { display: flex; align-items: center; gap: 7px; font-family: var(--font-mono); font-size: 11px; color: var(--muted); }
 
 .custom-select select {
@@ -286,16 +294,6 @@ body { background: var(--paper); color: var(--ink); font-family: var(--font-mono
   border-radius: 16px;
 }
 
-.header-controls { display: flex; gap: 6px; align-items: center; }
-
-.time-selector {
-  font-family: var(--font-mono);
-  font-size: 11px;
-  padding: 4px 9px;
-  border: 1.5px dashed var(--line2);
-  border-radius: 13px;
-}
-
 .webcam-display {
   position: relative;
   flex: 1;
@@ -332,27 +330,26 @@ body { background: var(--paper); color: var(--ink); font-family: var(--font-mono
   pointer-events: none;
 }
 
-.chart-section { margin-top: 14px; }
+/* État du trémor (badge) */
+.tremor-state { display: flex; align-items: center; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+.state-badge { font-family: var(--font-serif); font-weight: 700; font-size: 16px; }
+.tremor-state .state-badge { font-size: 22px; }
+.station-time .state-badge { font-size: 15px; }
+.state-detail { font-family: var(--font-mono); font-size: 11px; color: var(--muted); }
 
-.chart-label {
+/* Graphiques à axes */
+.chart-host { margin-top: 12px; flex: 1; }
+.axed-chart { width: 100%; height: auto; display: block; color: var(--ink); }
+.chart-empty {
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 12px;
   color: var(--muted);
-  margin-bottom: 4px;
-}
-
-.chart-meta { color: var(--muted); opacity: 0.8; }
-
-.waveform-chart, .rsam-chart {
-  width: 100%;
+  text-align: center;
+  padding: 34px 10px;
   border: 1.5px dashed var(--line);
-  border-radius: 7px;
-  margin-top: 4px;
-  color: var(--ink);
+  border-radius: 8px;
+  margin-top: 12px;
 }
-
-.waveform-chart { height: 150px; }
-.rsam-chart { height: 80px; }
 
 /* ─── MODE IMMERSION ─────────────────────────────────── */
 .immersion-layout {
@@ -391,15 +388,7 @@ body { background: var(--paper); color: var(--ink); font-family: var(--font-mono
   display: none;
 }
 
-.immersion-top-label {
-  position: absolute;
-  top: 16px;
-  left: 18px;
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  z-index: 4;
-}
+.immersion-top-label { position: absolute; top: 16px; left: 18px; display: flex; align-items: center; gap: 9px; z-index: 4; }
 
 #immersion-bg-label {
   font-family: var(--font-mono);
@@ -438,14 +427,7 @@ body { background: var(--paper); color: var(--ink); font-family: var(--font-mono
 
 .crisis-dot-small { width: 9px; height: 9px; border-radius: 50%; background: var(--crisis); }
 
-.immersion-controls {
-  position: absolute;
-  top: 16px;
-  right: 18px;
-  display: flex;
-  gap: 8px;
-  z-index: 8;
-}
+.immersion-controls { position: absolute; top: 16px; right: 18px; display: flex; gap: 8px; z-index: 8; }
 
 .btn-immersion-control, .btn-immersion-exit {
   font-family: var(--font-mono);
@@ -462,14 +444,7 @@ body { background: var(--paper); color: var(--ink); font-family: var(--font-mono
 .btn-immersion-exit { border: 1.5px solid var(--accent); color: var(--accent); }
 .btn-immersion-exit:hover { background: var(--accent); color: var(--paper); }
 
-.immersion-widget {
-  position: absolute;
-  width: 320px;
-  z-index: 5;
-  top: 70px;
-  left: 60px;
-  touch-action: none;
-}
+.immersion-widget { position: absolute; width: 320px; z-index: 5; top: 70px; left: 60px; touch-action: none; }
 
 .widget-header {
   display: flex;
@@ -486,7 +461,6 @@ body { background: var(--paper); color: var(--ink); font-family: var(--font-mono
 }
 
 .widget-header:active { cursor: grabbing; }
-
 .widget-drag-hint { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.1em; color: var(--muted); }
 #widget-title { font-family: var(--font-mono); font-size: 11px; }
 
@@ -510,17 +484,9 @@ body { background: var(--paper); color: var(--ink); font-family: var(--font-mono
 
 .widget-webcam .webcam-img { width: 100%; height: 100%; }
 .widget-webcam .webcam-timestamp { font-size: 9px; }
-
 .widget-tremor { padding: 10px 12px; }
 .widget-tremor-label { font-family: var(--font-mono); font-size: 9px; color: var(--muted); margin-bottom: 4px; }
-
-.widget-chart {
-  width: 100%;
-  height: 110px;
-  border: 1.5px dashed var(--line);
-  border-radius: 7px;
-  color: var(--ink);
-}
+.widget-chart { width: 100%; height: 110px; border: 1.5px dashed var(--line); border-radius: 7px; color: var(--ink); }
 
 /* ─── MODAL WEBCAM (pop-up intégré) ──────────────────── */
 .webcam-modal {
@@ -534,7 +500,6 @@ body { background: var(--paper); color: var(--ink); font-family: var(--font-mono
 }
 
 .webcam-modal.hidden { display: none; }
-
 .webcam-modal-backdrop { position: absolute; inset: 0; background: rgba(0, 0, 0, 0.78); cursor: zoom-out; }
 
 .webcam-modal-content {
@@ -572,7 +537,6 @@ body { background: var(--paper); color: var(--ink); font-family: var(--font-mono
 }
 
 .btn-reduce:hover { background: var(--accent); color: var(--paper); }
-
 .webcam-modal-body { background: #000; }
 .webcam-modal-img { display: block; width: 100%; max-height: 78vh; object-fit: contain; }
 
@@ -626,14 +590,14 @@ body { background: var(--paper); color: var(--ink); font-family: var(--font-mono
 .webcam-card-name { font-family: var(--font-mono); font-size: 11px; color: var(--ink); }
 .webcam-card-credit { font-family: var(--font-mono); font-size: 8px; color: var(--muted); }
 
-/* ─── COURBES PAGE ─────────────────────────────────────── */
+/* ─── TRÉMOR / SIGNAL PAGES ─────────────────────────────── */
 .courbes-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
   flex-wrap: wrap;
-  margin-bottom: 14px;
+  margin-bottom: 12px;
 }
 
 .time-controls { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
@@ -669,9 +633,7 @@ body { background: var(--paper); color: var(--ink); font-family: var(--font-mono
   margin-bottom: 11px;
 }
 
-/* Chips groupées par zone */
 .station-chips { display: flex; flex-direction: column; gap: 9px; }
-
 .chip-zone-group { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 
 .chip-zone-label {
@@ -680,7 +642,7 @@ body { background: var(--paper); color: var(--ink); font-family: var(--font-mono
   letter-spacing: 0.12em;
   text-transform: uppercase;
   color: var(--muted);
-  min-width: 120px;
+  min-width: 150px;
 }
 
 .chip-zone-row { display: flex; flex-wrap: wrap; gap: 7px; }
@@ -700,9 +662,7 @@ body { background: var(--paper); color: var(--ink); font-family: var(--font-mono
 .station-chip.active { border-style: solid; border-color: var(--accent); color: var(--accent); }
 .station-chip:hover { border-color: var(--accent); }
 
-/* Liste groupée par zone */
 .stations-list { display: flex; flex-direction: column; }
-
 .zone-section { margin-bottom: 6px; }
 
 .zone-heading {
@@ -728,7 +688,7 @@ body { background: var(--paper); color: var(--ink); font-family: var(--font-mono
   padding: 1px 8px;
 }
 
-.station-card { border: 1.5px dashed var(--line2); border-radius: 11px; overflow: hidden; margin-bottom: 12px; }
+.station-card { border: 1.5px dashed var(--line2); border-radius: 11px; overflow: hidden; margin-bottom: 12px; padding-bottom: 14px; }
 
 .station-card-header {
   display: flex;
@@ -743,38 +703,9 @@ body { background: var(--paper); color: var(--ink); font-family: var(--font-mono
 .station-info { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .station-id { font-family: var(--font-serif); font-weight: 700; font-size: 17px; }
 .station-name { font-family: var(--font-mono); font-size: 12px; color: var(--muted); }
+.station-time { font-family: var(--font-mono); font-size: 11px; color: var(--muted); display: flex; align-items: center; gap: 7px; }
 
-.station-zone {
-  font-family: var(--font-mono);
-  font-size: 9px;
-  letter-spacing: 0.1em;
-  padding: 2px 8px;
-  border: 1.5px dashed var(--accent);
-  border-radius: 11px;
-  color: var(--accent);
-}
-
-.station-time { font-family: var(--font-mono); font-size: 11px; color: var(--muted); }
-
-.station-card-charts { display: grid; grid-template-columns: 1.6fr 1fr; gap: 0; }
-
-.station-chart-section { padding: 12px 16px; border-right: 1.5px dashed var(--line); }
-.station-chart-section:last-child { border-right: none; }
-
-.station-chart-label {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  color: var(--muted);
-  margin-bottom: 5px;
-}
-
-.station-waveform, .station-rsam {
-  width: 100%;
-  height: 90px;
-  border: 1.5px dashed var(--line);
-  border-radius: 7px;
-  color: var(--ink);
-}
+.station-card .chart-host { padding: 0 16px; }
 
 /* ─── LEGEND FOOT ─────────────────────────────────────── */
 .legend-foot {
@@ -788,25 +719,17 @@ body { background: var(--paper); color: var(--ink); font-family: var(--font-mono
   color: var(--muted);
 }
 
-.legend-foot span { display: flex; align-items: center; gap: 7px; }
-.legend-line { width: 18px; height: 2px; display: inline-block; }
-.legend-line.accent { background: var(--accent); }
-.legend-line.muted { background: var(--ink); opacity: 0.5; }
 .legend-source { margin-left: auto; }
 
 /* ─── RESPONSIVE ─────────────────────────────────────── */
 @media (max-width: 1024px) {
   .accueil-layout { grid-template-columns: 1fr; }
-  .station-card-charts { grid-template-columns: 1fr; }
-  .station-chart-section { border-right: none; border-bottom: 1.5px dashed var(--line); }
-  .station-chart-section:last-child { border-bottom: none; }
 }
 
 @media (max-width: 768px) {
   .top-nav { padding: 14px 18px; }
   .screen-body { padding: 22px 18px 26px; }
   .legend-foot { padding: 0 18px 26px; }
-  .nav-right { flex-wrap: wrap; gap: 12px; }
   .accueil-controls { flex-direction: column-reverse; align-items: stretch; }
   .crisis-right { gap: 12px; font-size: 10px; }
   .chip-zone-label { min-width: 100%; }
@@ -814,7 +737,7 @@ body { background: var(--paper); color: var(--ink); font-family: var(--font-mono
 }
 
 @media (max-width: 480px) {
-  .nav-right { gap: 8px; }
+  .nav-right { gap: 10px; }
   .nav-link { font-size: 12px; }
   .status-live { font-size: 10px; padding: 4px 8px; }
   .custom-select select { max-width: 150px; }

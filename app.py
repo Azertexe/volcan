@@ -240,6 +240,67 @@ def webcams():
     return jsonify({"base": WEBCAM_BASE, "cams": WEBCAMS})
 
 
+# ── 3b) Inventaire des stations PF (depuis RESIF) ──────────────────────
+def _zone_for(lat, lon):
+    """Zone éditoriale approximative à partir de la position relative au sommet."""
+    dlat = lat - SUMMIT_LAT
+    dlon = (lon - SUMMIT_LON) * math.cos(math.radians(SUMMIT_LAT))
+    dist = math.hypot(dlat, dlon) * 111.0
+    if dist <= 3:
+        return "Sommet / Enclos"
+    if dist > 12:
+        return "Hors enclos"
+    az = (math.degrees(math.atan2(dlon, dlat)) + 360) % 360
+    if az < 45 or az >= 315:
+        return "Pentes N"
+    if az < 135:
+        return "Pentes E / Grand Brûlé"
+    if az < 225:
+        return "Pentes S"
+    return "Pentes O"
+
+
+@app.route("/stations")
+def stations():
+    """Liste réelle des stations PF (composante verticale) servie depuis RESIF."""
+    cached = _cache_get("stations", ttl=86400)
+    if cached is not None:
+        return jsonify(cached)
+    try:
+        inv = client.get_stations(
+            network=NETWORK, level="channel", channel="*Z",
+            starttime=UTCDateTime() - 86400 * 30,
+        )
+    except Exception as e:
+        return jsonify({"error": str(e), "stations": []}), 502
+
+    seen = {}
+    for net in inv:
+        for sta in net:
+            zchans = sorted({c.code for c in sta.channels
+                             if c.code and c.code.endswith("Z")})
+            if not zchans or sta.code in seen:
+                continue
+            name = sta.code
+            try:
+                if sta.site and sta.site.name:
+                    name = sta.site.name
+            except Exception:
+                pass
+            seen[sta.code] = {
+                "id": sta.code,
+                "name": name,
+                "lat": round(float(sta.latitude), 4),
+                "lon": round(float(sta.longitude), 4),
+                "zone": _zone_for(float(sta.latitude), float(sta.longitude)),
+                "channels": zchans,
+            }
+    out = sorted(seen.values(), key=lambda s: (s["zone"], s["id"]))
+    payload = {"network": NETWORK, "count": len(out), "stations": out}
+    _cache_set("stations", payload)
+    return jsonify(payload)
+
+
 # ── 4) Calculateur de crise sismique ───────────────────────────────────
 @app.route("/crise")
 def crise():
@@ -440,6 +501,7 @@ def root():
             "/seismes?hours=24",
             "/bulletin",
             "/webcams",
+            "/stations",
             "/crise?window=3&seuil=15",
         ],
     })
