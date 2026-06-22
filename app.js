@@ -1,60 +1,71 @@
+/* ──────────────────────────────────────────────────────────────
+   Piton de la Fournaise — Tableau de bord trémor (lo-fi)
+   Toutes les données viennent du backend Flask (app.py) :
+     /tremor /signal /seismes /bulletin /webcams /crise
+   Source réelle : RESIF FDSN + OVPF-IPGP.
+────────────────────────────────────────────────────────────── */
+
+const API_BASE = 'https://volcan-backend-gnem.onrender.com';
+const REFRESH_MS = 60_000;
+
+// Stations PF affichées sur la page Courbes (+ webcam d'accueil).
+const STATIONS = [
+  { id: 'BOR', name: 'Bory',            zone: 'ENCLOS FOUQUÉ' },
+  { id: 'CSS', name: 'Cassé Sud',       zone: 'ENCLOS FOUQUÉ' },
+  { id: 'FOR', name: 'Formica Leo',     zone: 'ENCLOS FOUQUÉ' },
+  { id: 'PER', name: 'Père',            zone: 'PENTES S' },
+  { id: 'RVL', name: 'Ravine Langevin', zone: 'PENTES S' },
+  { id: 'RER', name: "Rivière de l'Est", zone: 'GRAND BRÛLÉ' },
+];
+
+const LEVEL_LABELS = {
+  calme: 'CALME',
+  vigilance: 'VIGILANCE',
+  crise: 'CRISE',
+  eruption: 'ÉRUPTION',
+};
+
 class VolcanApp {
   constructor() {
     this.state = {
       page: 'accueil',
-      immersion: false,
-      immersionBg: 'tremor',
-      theme: 'dark',
-      windowSize: 30,
-      selectedStations: new Set(['BOR', 'CSS', 'FOR', 'PER']),
+      theme: localStorage.getItem('volcan-theme') || 'dark',
+      accueilStation: 'BOR',
+      courbesMinutes: 10,
+      selectedStations: new Set(['BOR', 'CSS', 'FOR']),
+      webcamBase: '',
+      webcams: [],
     };
-
-    this.stationData = [
-      { id: 'PF.FOR', name: 'Formica Leo', zone: 'ENCLOS FOUQUÉ', chan: 'HHZ' },
-      { id: 'PF.CSS', name: 'Cassé Sud', zone: 'ENCLOS FOUQUÉ', chan: 'HHZ' },
-      { id: 'PF.BOR', name: 'Bory', zone: 'ENCLOS FOUQUÉ', chan: 'EHZ' },
-      { id: 'PF.PER', name: 'Père', zone: 'PENTES S', chan: 'EHZ' },
-      { id: 'PF.RVL', name: 'Rivals', zone: 'PENTES S', chan: 'EHZ' },
-      { id: 'PF.RER', name: "Rivière de l'Est", zone: 'GRAND BRÛLÉ', chan: 'EHZ' },
-    ];
-
-    this.webcamData = [
-      { name: 'Cratère Bory', time: '14:35:20' },
-      { name: 'Dolomieu Est', time: '14:40:08' },
-      { name: 'Piton Bert', time: '14:26:08' },
-      { name: 'Enclos Fouqué', time: '14:30:11' },
-      { name: 'Piton Partage', time: '14:40:05' },
-      { name: 'Piton Basaltes', time: '14:35:20' },
-      { name: 'Piton Cascades', time: '14:40:08' },
-      { name: 'Nez Coupé', time: '14:38:02' },
-    ];
-
-    this.widgetDragState = { dragging: false, offsetX: 0, offsetY: 0 };
-
+    this.refreshTimer = null;
     this.init();
   }
 
   init() {
-    this.setupTheme();
+    document.documentElement.className = this.state.theme;
+    this.syncThemeButton();
     this.attachEventListeners();
-    this.renderCaption();
-    this.renderPage('accueil');
-    this.generateCharts();
+    this.renderStationChips();
+    this.switchPage('accueil');
   }
 
-  setupTheme() {
-    const theme = localStorage.getItem('volcan-theme') || 'dark';
-    this.state.theme = theme;
-    document.documentElement.className = theme;
+  /* ─── Réseau ─────────────────────────────────────────── */
+  async api(path) {
+    const res = await fetch(API_BASE + path, { mode: 'cors' });
+    if (!res.ok) {
+      let detail = '';
+      try { detail = (await res.json()).error || ''; } catch (_) {}
+      throw new Error(detail || `HTTP ${res.status}`);
+    }
+    return res.json();
   }
 
+  setStatus(state, text) {
+    document.getElementById('status-dot').className = 'status-dot ' + state;
+    document.getElementById('status-text').textContent = text;
+  }
+
+  /* ─── Événements UI ──────────────────────────────────── */
   attachEventListeners() {
-    // Page switcher
-    document.querySelectorAll('.switcher-btn').forEach(btn => {
-      btn.addEventListener('click', () => this.switchPage(btn.dataset.page));
-    });
-
-    // Top nav links
     document.querySelectorAll('.nav-link').forEach(link => {
       link.addEventListener('click', (e) => {
         e.preventDefault();
@@ -62,338 +73,318 @@ class VolcanApp {
       });
     });
 
-    // Theme toggle
-    document.getElementById('theme-toggle').addEventListener('click', () => this.toggleTheme());
+    document.getElementById('theme-toggle')
+      .addEventListener('click', () => this.toggleTheme());
 
-    // Accueil immersion mode
-    document.getElementById('enter-immersion').addEventListener('click', () => this.enterImmersion());
-    document.getElementById('exit-immersion').addEventListener('click', () => this.exitImmersion());
-    document.getElementById('swap-bg').addEventListener('click', () => this.swapImmersionBg());
+    document.getElementById('webcams-refresh')
+      .addEventListener('click', () => this.loadWebcams(true));
 
-    // Widget dragging
-    document.querySelector('.widget-header').addEventListener('pointerdown', (e) => this.startWidgetDrag(e));
+    document.getElementById('courbes-refresh')
+      .addEventListener('click', () => this.loadCourbes());
 
-    // Courbes time buttons
-    document.querySelectorAll('.time-btn').forEach(btn => {
+    document.querySelectorAll('.time-btn[data-minutes]').forEach(btn => {
       btn.addEventListener('click', () => {
-        document.querySelectorAll('.time-btn').forEach(b => b.classList.remove('active'));
+        document.querySelectorAll('.time-btn[data-minutes]')
+          .forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
+        this.state.courbesMinutes = parseInt(btn.dataset.minutes, 10);
+        this.loadCourbes();
       });
     });
   }
 
-  switchPage(page) {
-    if (this.state.immersion) this.exitImmersion();
-
-    this.state.page = page;
-    document.querySelectorAll('.page-content').forEach(p => p.classList.remove('active'));
-    document.getElementById(`page-${page}`).classList.add('active');
-
-    // Update switcher buttons
-    document.querySelectorAll('.switcher-btn').forEach(btn => {
-      btn.classList.toggle('active', btn.dataset.page === page);
-    });
-
-    // Update nav links
-    document.querySelectorAll('.nav-link').forEach(link => {
-      link.classList.toggle('active', link.dataset.nav === page);
-    });
-
-    document.getElementById('url-path').textContent = page;
-    this.renderCaption();
-
-    if (page === 'webcams') this.renderWebcams();
-    if (page === 'courbes') this.renderCourbes();
-  }
-
   toggleTheme() {
-    const newTheme = this.state.theme === 'dark' ? 'light' : 'dark';
-    this.state.theme = newTheme;
-    localStorage.setItem('volcan-theme', newTheme);
-    document.documentElement.className = newTheme;
-
-    const btn = document.getElementById('theme-toggle');
-    btn.textContent = newTheme === 'light' ? '☾ Sombre' : '☀ Clair';
+    this.state.theme = this.state.theme === 'dark' ? 'light' : 'dark';
+    localStorage.setItem('volcan-theme', this.state.theme);
+    document.documentElement.className = this.state.theme;
+    this.syncThemeButton();
   }
 
-  enterImmersion() {
-    this.state.immersion = true;
-    this.state.immersionBg = 'tremor';
-    document.getElementById('accueil-normal').style.display = 'none';
-    document.getElementById('accueil-immersion').classList.remove('hidden');
-    this.renderImmersionMode();
+  syncThemeButton() {
+    document.getElementById('theme-toggle').textContent =
+      this.state.theme === 'light' ? '☾ Sombre' : '☀ Clair';
   }
 
-  exitImmersion() {
-    this.state.immersion = false;
-    document.getElementById('accueil-normal').style.display = 'grid';
-    document.getElementById('accueil-immersion').classList.add('hidden');
-  }
+  switchPage(page) {
+    this.state.page = page;
+    document.querySelectorAll('.page-content')
+      .forEach(p => p.classList.remove('active'));
+    document.getElementById(`page-${page}`).classList.add('active');
+    document.querySelectorAll('.nav-link')
+      .forEach(link => link.classList.toggle('active', link.dataset.nav === page));
 
-  swapImmersionBg() {
-    this.state.immersionBg = this.state.immersionBg === 'tremor' ? 'webcam' : 'tremor';
-    this.renderImmersionMode();
-  }
+    if (this.refreshTimer) clearInterval(this.refreshTimer);
 
-  renderImmersionMode() {
-    const bg = document.getElementById('immersion-bg');
-    const bgLabel = document.getElementById('immersion-bg-label');
-    const widget = document.getElementById('widget-content');
-
-    if (this.state.immersionBg === 'tremor') {
-      bg.classList.remove('webcam-bg');
-      bgLabel.textContent = 'FOND · TRÉMOR';
-      document.querySelector('.immersion-selector').textContent = 'PF.BOR ▾';
-
-      // Show wave in background
-      const waveSvg = bg.querySelector('svg');
-      if (waveSvg) {
-        const wave = this.generateWave(7, 96, 600, 120, 52);
-        this.drawPolyline(waveSvg, wave, 'var(--accent)');
-      }
-
-      // Widget shows webcam
-      document.getElementById('widget-title').textContent = 'Webcam ▾';
-      widget.innerHTML = `
-        <div class="widget-webcam">
-          <span>▦ WEBCAM</span>
-          <span class="widget-webcam-timestamp">14:30 TU</span>
-        </div>
-      `;
-    } else {
-      bg.classList.add('webcam-bg');
-      bgLabel.textContent = 'FOND · WEBCAM';
-      document.querySelector('.immersion-selector').textContent = 'Enclos Fouqué ▾';
-
-      // Clear background wave
-      const waveSvg = bg.querySelector('svg');
-      if (waveSvg) waveSvg.innerHTML = '';
-
-      // Widget shows tremor
-      document.getElementById('widget-title').textContent = 'PF.BOR ▾';
-      const wave = this.generateWave(7, 96, 600, 120, 52);
-      widget.innerHTML = `
-        <div class="widget-tremor">
-          <div class="widget-tremor-label">SIGNAL BRUT</div>
-          <svg class="widget-chart" viewBox="0 0 600 120" preserveAspectRatio="none"></svg>
-        </div>
-      `;
-      const svg = widget.querySelector('svg');
-      this.drawPolyline(svg, wave, 'var(--accent)');
+    if (page === 'accueil') {
+      this.loadAccueil();
+      this.refreshTimer = setInterval(() => this.loadAccueil(), REFRESH_MS);
+    } else if (page === 'webcams') {
+      this.loadWebcams();
+      this.refreshTimer = setInterval(() => this.loadWebcams(true), REFRESH_MS);
+    } else if (page === 'courbes') {
+      this.loadCourbes();
+      this.refreshTimer = setInterval(() => this.loadCourbes(), REFRESH_MS);
     }
   }
 
-  startWidgetDrag(e) {
-    if (e.button !== 0) return;
-    e.preventDefault();
+  /* ─── Page ACCUEIL ───────────────────────────────────── */
+  async loadAccueil() {
+    this.setStatus('loading', 'Mise à jour…');
+    const station = this.state.accueilStation;
+    document.getElementById('accueil-station-label').textContent = 'PF.' + station;
 
-    const widget = document.getElementById('immersion-widget');
-    const rect = widget.getBoundingClientRect();
-    const startX = e.clientX;
-    const startY = e.clientY;
-    const currentX = parseFloat(widget.style.left) || 690;
-    const currentY = parseFloat(widget.style.top) || 340;
-
-    const onMove = (moveEvent) => {
-      const dx = moveEvent.clientX - startX;
-      const dy = moveEvent.clientY - startY;
-      widget.style.left = (currentX + dx) + 'px';
-      widget.style.top = (currentY + dy) + 'px';
-    };
-
-    const onUp = () => {
-      document.removeEventListener('pointermove', onMove);
-      document.removeEventListener('pointerup', onUp);
-    };
-
-    document.addEventListener('pointermove', onMove);
-    document.addEventListener('pointerup', onUp);
+    // Ruban de crise : crise + bulletin + séismes
+    this.loadCrisisRibbon();
+    // Webcam d'accueil
+    this.loadAccueilWebcam();
+    // Courbes trémor de la station par défaut
+    this.loadAccueilCharts(station);
   }
 
-  renderCaption() {
-    const captions = {
-      accueil: 'Accueil — « Côte à côte »',
-      webcams: 'Page Webcams — toutes les caméras',
-      courbes: 'Page Courbes — toutes les stations',
-    };
+  async loadCrisisRibbon() {
+    try {
+      const [crise, bulletin, seismes] = await Promise.allSettled([
+        this.api('/crise?window=3&seuil=15'),
+        this.api('/bulletin'),
+        this.api('/seismes?hours=24'),
+      ]);
 
-    const descriptions = {
-      accueil: 'Ruban de crise fin en haut · webcam et courbe à parité 50/50.',
-      webcams: 'Grille filtrable de toutes les webcams OVPF-IPGP.',
-      courbes: 'Sélecteur de stations + signal brut & RSAM pour chaque station.',
-    };
+      const crisisVal = document.getElementById('crisis-value');
+      const crisisDot = document.getElementById('crisis-dot');
 
-    const caption = document.getElementById('caption');
-    caption.innerHTML = `
-      <span class="caption-title">${captions[this.state.page]}</span>
-      <span>${descriptions[this.state.page]}</span>
+      let niveau = null;
+      if (bulletin.status === 'fulfilled' && bulletin.value.niveau_alerte) {
+        niveau = bulletin.value.niveau_alerte;
+      } else if (crise.status === 'fulfilled' && crise.value.niveau_alerte_ovpf) {
+        niveau = crise.value.niveau_alerte_ovpf;
+      }
+
+      let crise_probable = crise.status === 'fulfilled' && crise.value.crise_probable;
+      crisisVal.textContent = crise_probable ? 'CRISE PROBABLE' : (niveau || 'VIGILANCE');
+      crisisDot.className = 'crisis-dot ' + (crise_probable ? 'level-crise' : 'level-vigilance');
+
+      // Comptages
+      if (seismes.status === 'fulfilled') {
+        document.getElementById('stat-sommitaux').textContent = seismes.value.counts?.sommital ?? 0;
+        document.getElementById('stat-profonds').textContent = seismes.value.counts?.profond ?? 0;
+      }
+      if (bulletin.status === 'fulfilled') {
+        document.getElementById('stat-eboulements').textContent =
+          bulletin.value.eboulements?.total ?? '—';
+        document.getElementById('stat-ovpf').textContent =
+          bulletin.value.niveau_alerte || '—';
+      }
+    } catch (err) {
+      document.getElementById('crisis-value').textContent = 'INDISPONIBLE';
+    }
+  }
+
+  async loadAccueilWebcam() {
+    try {
+      if (!this.state.webcams.length) await this.fetchWebcams();
+      const cam = this.state.webcams[0];
+      if (!cam) return;
+      document.getElementById('accueil-webcam-name').textContent = cam.label;
+      const box = document.getElementById('accueil-webcam');
+      box.innerHTML = this.webcamImgHtml(cam);
+    } catch (_) {
+      document.getElementById('accueil-webcam').innerHTML =
+        '<span class="webcam-placeholder">Webcam indisponible</span>';
+    }
+  }
+
+  async loadAccueilCharts(station) {
+    const waveSvg = document.querySelector('.waveform-chart');
+    const rsamSvg = document.querySelector('.rsam-chart');
+
+    // Signal brut
+    try {
+      const sig = await this.api(`/signal?station=${station}&minutes=10`);
+      this.drawLine(waveSvg, sig.v, 'var(--accent)');
+      document.getElementById('accueil-signal-meta').textContent =
+        `${sig.channel} · ${Math.round(sig.sampling_rate)} Hz`;
+    } catch (err) {
+      this.drawError(waveSvg);
+      document.getElementById('accueil-signal-meta').textContent = '· indisponible';
+    }
+
+    // RSAM (trémor)
+    try {
+      const tr = await this.api(`/tremor?station=${station}&hours=6`);
+      this.drawLine(rsamSvg, tr.rms, 'var(--ink)', 0.55);
+      const niveau = tr.levels?.niveau;
+      const lvlEl = document.getElementById('accueil-tremor-level');
+      lvlEl.textContent = LEVEL_LABELS[niveau] || '—';
+      lvlEl.className = 'time-selector level-' + (niveau || 'calme');
+      document.getElementById('accueil-rsam-meta').textContent =
+        tr.levels ? `· ${tr.levels.courant} (base ${tr.levels.baseline})` : '';
+      this.setStatus('ok', 'En direct · ' + new Date().toLocaleTimeString('fr-FR'));
+    } catch (err) {
+      this.drawError(rsamSvg);
+      document.getElementById('accueil-rsam-meta').textContent = '· indisponible';
+      this.setStatus('error', 'Serveur injoignable');
+    }
+  }
+
+  /* ─── Page WEBCAMS ───────────────────────────────────── */
+  async fetchWebcams() {
+    const data = await this.api('/webcams');
+    this.state.webcamBase = data.base;
+    this.state.webcams = data.cams || [];
+    return this.state.webcams;
+  }
+
+  webcamImgHtml(cam) {
+    const url = this.state.webcamBase + cam.file + '?_=' + Date.now();
+    return `
+      <img class="webcam-img" src="${url}" alt="${cam.label}"
+           onerror="this.style.display='none';this.nextElementSibling.style.display='flex';" />
+      <span class="webcam-placeholder" style="display:none">Image indisponible</span>
+      <span class="webcam-timestamp">MAJ ${new Date().toLocaleTimeString('fr-FR')}</span>
     `;
   }
 
-  renderPage(page) {
-    this.switchPage(page);
+  async loadWebcams(force = false) {
+    const grid = document.getElementById('webcams-grid');
+    try {
+      if (force || !this.state.webcams.length) await this.fetchWebcams();
+      this.setStatus('ok', 'En direct · ' + new Date().toLocaleTimeString('fr-FR'));
+      grid.innerHTML = this.state.webcams.map(cam => `
+        <div class="webcam-card">
+          ${this.webcamImgHtml(cam)}
+          <div class="webcam-card-footer">
+            <span class="webcam-card-name">${cam.label}</span>
+            <span class="webcam-card-credit">© OVPF-IPGP</span>
+          </div>
+        </div>
+      `).join('');
+    } catch (err) {
+      this.setStatus('error', 'Serveur injoignable');
+      grid.innerHTML = `<div class="empty-msg">Webcams indisponibles — ${err.message}</div>`;
+    }
   }
 
-  renderWebcams() {
-    const grid = document.getElementById('webcams-grid');
-    grid.innerHTML = this.webcamData.map(cam => `
-      <div class="webcam-card">
-        <div class="webcam-card-time">${cam.time} TU</div>
-        <div class="webcam-card-placeholder">▦ CAM</div>
-        <div class="webcam-card-footer">
-          <span class="webcam-card-name">${cam.name}</span>
-          <span class="webcam-card-credit">© OVPF-IPGP</span>
+  /* ─── Page COURBES ───────────────────────────────────── */
+  renderStationChips() {
+    const container = document.getElementById('station-chips');
+    container.innerHTML = STATIONS.map(st => {
+      const active = this.state.selectedStations.has(st.id);
+      return `<button class="station-chip ${active ? 'active' : ''}" data-station="${st.id}">${st.id}</button>`;
+    }).join('');
+
+    container.querySelectorAll('.station-chip').forEach(chip => {
+      chip.addEventListener('click', () => {
+        const id = chip.dataset.station;
+        if (this.state.selectedStations.has(id)) {
+          this.state.selectedStations.delete(id);
+          chip.classList.remove('active');
+        } else {
+          this.state.selectedStations.add(id);
+          chip.classList.add('active');
+        }
+        if (this.state.page === 'courbes') this.loadCourbes();
+      });
+    });
+  }
+
+  async loadCourbes() {
+    const container = document.getElementById('stations-list');
+    const stations = STATIONS.filter(st => this.state.selectedStations.has(st.id));
+    if (!stations.length) {
+      container.innerHTML = '<div class="empty-msg">Sélectionnez au moins une station.</div>';
+      return;
+    }
+
+    this.setStatus('loading', 'Mise à jour…');
+    // Squelette immédiat
+    container.innerHTML = stations.map(st => `
+      <div class="station-card" id="card-${st.id}">
+        <div class="station-card-header">
+          <div class="station-info">
+            <span class="station-id">PF.${st.id}</span>
+            <span class="station-name">${st.name}</span>
+            <span class="station-zone">${st.zone}</span>
+          </div>
+          <span class="station-time" id="time-${st.id}">chargement…</span>
+        </div>
+        <div class="station-card-charts">
+          <div class="station-chart-section">
+            <div class="station-chart-label">SIGNAL BRUT</div>
+            <svg class="station-waveform" viewBox="0 0 600 120" preserveAspectRatio="none"></svg>
+          </div>
+          <div class="station-chart-section">
+            <div class="station-chart-label">RSAM</div>
+            <svg class="station-rsam" viewBox="0 0 600 120" preserveAspectRatio="none"></svg>
+          </div>
         </div>
       </div>
     `).join('');
 
-    // Attach filter listeners
-    document.querySelectorAll('.filter-btn').forEach(btn => {
-      btn.addEventListener('click', () => {
-        document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
-      });
-    });
+    const minutes = this.state.courbesMinutes;
+    let anyError = false;
+    await Promise.all(stations.map(async st => {
+      const card = document.getElementById(`card-${st.id}`);
+      const waveSvg = card.querySelector('.station-waveform');
+      const rsamSvg = card.querySelector('.station-rsam');
+      const timeEl = document.getElementById(`time-${st.id}`);
+
+      try {
+        const sig = await this.api(`/signal?station=${st.id}&minutes=${minutes}`);
+        this.drawLine(waveSvg, sig.v, 'var(--accent)');
+        timeEl.textContent = `${sig.channel} · ${minutes} min`;
+      } catch (err) {
+        this.drawError(waveSvg);
+        timeEl.textContent = 'pas de données';
+        anyError = true;
+      }
+
+      try {
+        const tr = await this.api(`/tremor?station=${st.id}&hours=6`);
+        this.drawLine(rsamSvg, tr.rms, 'var(--ink)', 0.55);
+      } catch (err) {
+        this.drawError(rsamSvg);
+        anyError = true;
+      }
+    }));
+
+    this.setStatus(anyError ? 'error' : 'ok',
+      anyError ? 'Données partielles' : 'En direct · ' + new Date().toLocaleTimeString('fr-FR'));
   }
 
-  renderCourbes() {
-    this.renderStationChips();
-    this.renderStationCards();
-  }
-
-  renderStationChips() {
-    const container = document.getElementById('station-chips');
-    const allStations = ['BOR', 'CSS', 'FOR', 'PER', 'RVL', 'RER', 'HDL', '+ 50'];
-
-    container.innerHTML = allStations.map(station => {
-      const isActive = this.state.selectedStations.has(station);
-      return `
-        <button class="station-chip ${isActive ? 'active' : ''}" data-station="${station}">
-          ${station}
-        </button>
-      `;
-    }).join('');
-
-    document.querySelectorAll('.station-chip').forEach(chip => {
-      chip.addEventListener('click', () => {
-        const station = chip.dataset.station;
-        if (this.state.selectedStations.has(station)) {
-          this.state.selectedStations.delete(station);
-          chip.classList.remove('active');
-        } else {
-          this.state.selectedStations.add(station);
-          chip.classList.add('active');
-        }
-      });
-    });
-  }
-
-  renderStationCards() {
-    const container = document.getElementById('stations-list');
-    container.innerHTML = this.stationData.map((st, i) => {
-      const wave = this.generateWave(91 + i * 13, 84, 600, 120, 46);
-      const rsam = this.generateRSAM(173 + i * 11, 20, 600, 120);
-
-      return `
-        <div class="station-card">
-          <div class="station-card-header">
-            <div class="station-info">
-              <span class="station-id">${st.id}</span>
-              <span class="station-name">${st.name}</span>
-              <span class="station-zone">${st.zone}</span>
-            </div>
-            <span class="station-time">${st.chan} · 18:10:25 → 18:40:25</span>
-          </div>
-          <div class="station-card-charts">
-            <div class="station-chart-section">
-              <div class="station-chart-label">SIGNAL BRUT</div>
-              <svg class="station-waveform" viewBox="0 0 600 120" preserveAspectRatio="none" data-wave="${wave}"></svg>
-            </div>
-            <div class="station-chart-section">
-              <div class="station-chart-label">RSAM</div>
-              <svg class="station-rsam" viewBox="0 0 600 120" preserveAspectRatio="none" data-rsam="${rsam}"></svg>
-            </div>
-          </div>
-        </div>
-      `;
-    }).join('');
-
-    // Draw charts
-    document.querySelectorAll('.station-waveform').forEach(svg => {
-      const wave = svg.dataset.wave;
-      this.drawPolyline(svg, wave, 'var(--accent)');
-    });
-
-    document.querySelectorAll('.station-rsam').forEach(svg => {
-      const rsam = svg.dataset.rsam;
-      this.drawPolyline(svg, rsam, 'var(--ink)', 0.5);
-    });
-  }
-
-  generateCharts() {
-    // Accueil normal mode charts
-    const wave1 = this.generateWave(7, 96, 600, 120, 52);
-    const rsam1 = this.generateRSAM(31, 24, 600, 120);
-
-    const waveSvg = document.querySelector('.waveform-chart');
-    const rsamSvg = document.querySelector('.rsam-chart');
-
-    if (waveSvg) this.drawPolyline(waveSvg, wave1, 'var(--accent)');
-    if (rsamSvg) this.drawPolyline(rsamSvg, rsam1, 'var(--ink)', 0.55);
-
-    // Immersion mode background
-    const immersionSvg = document.querySelector('.immersion-wave');
-    if (immersionSvg) this.drawPolyline(immersionSvg, wave1, 'var(--accent)');
-  }
-
-  generateWave(seed, n, w, h, amp) {
-    const rng = this.seededRandom(seed);
-    const points = [];
-
-    for (let i = 0; i <= n; i++) {
-      const x = (i / n) * w;
-      const env = 0.42 + 0.58 * Math.abs(Math.sin(i * 0.21) + 0.4 * Math.sin(i * 0.07));
-      let y = h / 2 + (rng() - 0.5) * amp * env * 2;
-      y = Math.max(3, Math.min(h - 3, y));
-      points.push(x.toFixed(1) + ',' + y.toFixed(1));
-    }
-
-    return points.join(' ');
-  }
-
-  generateRSAM(seed, n, w, h) {
-    const rng = this.seededRandom(seed);
-    const points = [];
-
-    for (let i = 0; i <= n; i++) {
-      const y = (h * 0.22 + rng() * h * 0.5).toFixed(1);
-      const x0 = ((i / n) * w).toFixed(1);
-      const x1 = (Math.min(w, ((i + 1) / n) * w)).toFixed(1);
-      points.push(x0 + ',' + y);
-      points.push(x1 + ',' + y);
-    }
-
-    return points.join(' ');
-  }
-
-  seededRandom(seed) {
-    let s = seed >>> 0;
-    return () => {
-      s = (s * 1664525 + 1013904223) >>> 0;
-      return s / 4294967296;
-    };
-  }
-
-  drawPolyline(svg, pointsStr, color, opacity = 1) {
-    const polyline = document.createElementNS('http://www.w3.org/2000/svg', 'polyline');
-    polyline.setAttribute('points', pointsStr);
-    polyline.setAttribute('fill', 'none');
-    polyline.setAttribute('stroke', color);
-    polyline.setAttribute('stroke-width', '1.6');
-    if (opacity < 1) polyline.setAttribute('opacity', opacity);
-
+  /* ─── Dessin SVG ─────────────────────────────────────── */
+  drawLine(svg, values, color, opacity = 1) {
+    const W = 600, H = 120, pad = 6;
     svg.innerHTML = '';
-    svg.appendChild(polyline);
+    if (!values || !values.length) return this.drawError(svg);
+
+    let min = Infinity, max = -Infinity;
+    for (const v of values) { if (v < min) min = v; if (v > max) max = v; }
+    if (min === max) { min -= 1; max += 1; }
+
+    const n = values.length;
+    const denom = max - min;
+    const span = n > 1 ? n - 1 : 1;
+    const pts = new Array(n);
+    for (let i = 0; i < n; i++) {
+      const x = (i / span) * W;
+      const y = H - pad - ((values[i] - min) / denom) * (H - 2 * pad);
+      pts[i] = x.toFixed(1) + ',' + y.toFixed(1);
+    }
+
+    const poly = document.createElementNS('http://www.w3.org/2000/svg', 'polyline');
+    poly.setAttribute('points', pts.join(' '));
+    poly.setAttribute('fill', 'none');
+    poly.setAttribute('stroke', color);
+    poly.setAttribute('stroke-width', '1.2');
+    poly.setAttribute('stroke-linejoin', 'round');
+    if (opacity < 1) poly.setAttribute('opacity', opacity);
+    svg.appendChild(poly);
+  }
+
+  drawError(svg) {
+    svg.innerHTML =
+      '<text x="300" y="64" text-anchor="middle" fill="currentColor" ' +
+      'opacity="0.45" font-size="13" font-family="monospace">données indisponibles</text>';
   }
 }
 
